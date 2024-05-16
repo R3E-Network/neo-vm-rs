@@ -7,13 +7,13 @@ extern crate core;
 pub use num_bigint::BigInt;
 pub mod exception;
 pub mod script;
-pub mod types;
+// pub mod types;
 
 pub mod vm;
 
 pub use exception::*;
 pub use script::*;
-pub use types::*;
+// pub use types::*;
 pub use vm::*;
 
 pub fn add(left: usize, right: usize) -> usize {

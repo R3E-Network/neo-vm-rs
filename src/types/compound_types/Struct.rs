@@ -163,7 +163,7 @@ impl Clone for Struct {
 
 impl PartialEq<Self> for Struct {
 	fn eq(&self, other: &Self) -> bool {
-
+		
 	}
 }
 
@@ -174,9 +174,9 @@ impl Serialize for Struct {
 }
 
 impl Deserialize for Struct {
-	fn deserialize<'de, D>(, deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+	fn deserialize<'de, D>(&self, deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
 		let bytes = Vec::<dyn StackItem>::deserialize(deserializer)?;
-		Ok(Struct::new(Some(Rc::new(RefCell::new(bytes))), None);
+		Ok(Struct::new(Some(Rc::new(RefCell::new(bytes))), None));
 	}
 }
 

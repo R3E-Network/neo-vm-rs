@@ -2,7 +2,8 @@ use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 use std::{collections::HashMap, fmt::Error};
-#[derive(Copy, Clone, Debug, PartialEq, Eq, FromPrimitive)]
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, FromPrimitive, Hash)]
 pub enum OpCode {
 	PushInt8 = 0x00,
 	PushInt16 = 0x01,
@@ -218,7 +219,7 @@ struct OperandSize {
 
 lazy_static! {
 	static ref OPERAND_SIZES: HashMap<OpCode, OperandSize> = {
-		let mut m = HashMap::new();
+		let mut m = HashMap::<OpCode, OperandSize>::new();
 		m.insert(OpCode::PushInt8, OperandSize { prefix: 0, size: 1 });
 		m.insert(OpCode::PushInt16, OperandSize { prefix: 0, size: 2 });
 		m.insert(OpCode::PushInt32, OperandSize { prefix: 0, size: 4 });
@@ -272,17 +273,17 @@ lazy_static! {
 }
 
 impl OpCode {
-	pub fn operand_size(&self) -> Result<u8, Error> {
+	pub fn operand_size(&self) -> Result<u8, &OpCode> {
 		match OPERAND_SIZES.get(self) {
 			Some(size) => Ok(size.size),
-			None => Err(Error::InvalidOpCode(*self)),
+			None => Err(self),
 		}
 	}
 
-	pub fn operand_prefix(&self) -> Result<u8, Error> {
+	pub fn operand_prefix(&self) -> Result<u8, &OpCode> {
 		match OPERAND_SIZES.get(self) {
 			Some(size) => Ok(size.prefix),
-			None => Err(Error::InvalidOpCode(*self)),
+			None => Err(self),
 		}
 	}
 }
