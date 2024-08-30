@@ -1,12 +1,6 @@
-use crate::{
-	primitive_types::primitive_type::PrimitiveType,
-	reference_counter::ReferenceCounter,
-	stack_item::{ObjectReferenceEntry, StackItem,},
-	stack_item_type::StackItemType,
-	types::compound_types::compound_type::{CompoundType},
-};
+use crate::types::{compound_types::compound_type::CompoundType, primitive_types::vm_primitive::VMPrimitive};
 use std::{
-	cell::RefCell,
+	cell::{Ref, RefCell},
 	collections::{
 		hash_map::{Entry, Iter, IterMut},
 		HashMap,
@@ -16,22 +10,30 @@ use std::{
 	rc::Rc,
 };
 use std::any::Any;
+use std::cmp::PartialEq;
 use num_bigint::BigInt;
 use crate::execution_engine_limits::ExecutionEngineLimits;
+use crate::types::primitive_types::primitive_type::PrimitiveType;
+use crate::vm::reference_counter::ReferenceCounter;
+use crate::types::stack_item::{ObjectReferenceEntry, StackItem};
+use crate::types::stack_item_type::StackItemType;
+use crate::types::vm_stack_item::VMStackItem;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
-pub struct Map {
+use super::vm_compound::VMCompound;
+
+#[derive(Eq, Hash, Debug, Default, PartialOrd, Ord)]
+pub struct VMMap {
 	stack_references: u32,
 	reference_counter: Option<Rc<RefCell<ReferenceCounter>>>,
-	object_references: RefCell<Option<HashMap<dyn CompoundType, ObjectReferenceEntry>>>,
+	object_references: RefCell<Option<HashMap<VMCompound, ObjectReferenceEntry>>>,
 	dfn: isize,
 	low_link: usize,
 	on_stack: bool,
-	dictionary: HashMap<Rc<RefCell<dyn PrimitiveType>>, Rc<RefCell<dyn StackItem>>>,
+	dictionary: HashMap<Rc<RefCell<VMPrimitive>>, Rc<RefCell<VMStackItem>>>,
 	read_only: bool,
 }
 
-impl Map {
+impl VMMap {
 	pub const MAX_KEY_SIZE: usize = 64;
 
 	pub fn new(reference_counter: Option<Rc<RefCell<ReferenceCounter>>>) -> Self {
@@ -47,7 +49,7 @@ impl Map {
 		}
 	}
 
-	pub fn insert(&mut self, key: Rc<RefCell<dyn PrimitiveType>>, value: Rc<RefCell<dyn StackItem>>) {
+	pub fn insert(&mut self, key: Rc<RefCell<VMPrimitive>>, value: Rc<RefCell<VMStackItem>>) {
 		if key.size() > Self::MAX_KEY_SIZE {
 			panic!("Max key size exceeded: {}", key.size());
 		}
@@ -55,7 +57,7 @@ impl Map {
 		self.dictionary.insert(key.clone(), value);
 	}
 
-	pub fn get(&self, key: Rc<RefCell<dyn PrimitiveType>>) -> Option<Rc<RefCell<dyn StackItem>>> {
+	pub fn get(&self, key: Rc<RefCell<VMPrimitive>>) -> Option<Rc<RefCell<VMStackItem>>> {
 		if key.size() > Self::MAX_KEY_SIZE {
 			panic!("Max key size exceeded: {}", key.size());
 		}
@@ -65,7 +67,7 @@ impl Map {
 		}
 	}
 
-	pub fn contains_key(&self, key: Rc<RefCell<dyn PrimitiveType>>) -> bool {
+	pub fn contains_key(&self, key: Rc<RefCell<VMPrimitive>>) -> bool {
 		if key.size() > Self::MAX_KEY_SIZE {
 			panic!("Max key size exceeded: {}", key.size());
 		}
@@ -73,7 +75,7 @@ impl Map {
 		self.dictionary.contains_key(&key)
 	}
 
-	pub fn remove(&mut self, key: Rc<RefCell<dyn PrimitiveType>>) -> Option<Rc<RefCell<dyn StackItem>>> {
+	pub fn remove(&mut self, key: Rc<RefCell<VMPrimitive>>) -> Option<Rc<RefCell<VMStackItem>>> {
 		if key.size() > Self::MAX_KEY_SIZE {
 			panic!("Max key size exceeded: {}", key.size());
 		}
@@ -81,7 +83,6 @@ impl Map {
 		self.dictionary.remove(&key)
 	}
 
-	// Other map methods...
 	pub fn len(&self) -> usize {
 		self.dictionary.len()
 	}
@@ -94,36 +95,37 @@ impl Map {
 		self.dictionary.clear();
 	}
 
-	pub fn keys(&self) -> Vec<Rc<RefCell<dyn StackItem>>> {
+	pub fn keys(&self) -> Vec<Rc<RefCell<VMStackItem>>> {
 		self.dictionary.into_keys().collect()
 	}
 
-	pub fn values(&self) -> Vec<Rc<RefCell<dyn StackItem>>> {
+	pub fn values(&self) -> Vec<Rc<RefCell<VMStackItem>>> {
 		self.dictionary.into_values().collect()
 	}
 
-	pub fn iter(&self) -> Iter<'_, Rc<RefCell<dyn PrimitiveType>>, Rc<RefCell<dyn StackItem>>> {
+	pub fn iter(&self) -> Iter<'_, Rc<RefCell<VMPrimitive>>, Rc<RefCell<VMStackItem>>> {
 		self.dictionary.iter()
 	}
 
-	pub fn iter_mut(&mut self) -> IterMut<'_, Rc<RefCell<dyn PrimitiveType>>, Rc<RefCell<dyn StackItem>>> {
+	pub fn iter_mut(&mut self) -> IterMut<'_, Rc<RefCell<VMPrimitive>>, Rc<RefCell<VMStackItem>>> {
 		self.dictionary.iter_mut()
 	}
 
 	pub fn entry(
 		&mut self,
-		key: Rc<RefCell<dyn PrimitiveType>>,
-	) -> Entry<'_, Rc<RefCell<dyn PrimitiveType>>, Rc<RefCell<dyn StackItem>>> {
+		key: Rc<RefCell<VMPrimitive>>,
+	) -> Entry<'_, Rc<RefCell<VMPrimitive>>, Rc<RefCell<VMStackItem>>> {
 		self.dictionary.entry(key)
 	}
 }
 
-impl StackItem for Map {
-	const TRUE: Self =  Default::default();
+impl PartialEq for VMStackItem {
+	fn eq(&self, other: &Self) -> bool {
+		self.equals(other)
+	}
+}
 
-	const FALSE: Self =  Default::default();
-
-	const NULL: Self = Default::default();
+impl StackItem for VMMap {
 
 	fn dfn(&self) -> isize {
 		self.dfn
@@ -149,12 +151,12 @@ impl StackItem for Map {
 		self.on_stack = on_stack;
 	}
 
-	fn set_object_references(&mut self, refs: Self::ObjectReferences) {
+	fn set_object_references(&mut self, refs: RefCell<HashMap<VMCompound, ObjectReferenceEntry>>) {
 		self.object_references = refs;
 	}
 
-	fn object_references(&self) -> &Self::ObjectReferences {
-		&self.object_references
+	fn object_references(&self) -> RefCell<HashMap<VMCompound, ObjectReferenceEntry>> {
+		self.object_references
 	}
 
 	fn set_stack_references(&mut self, count: usize) {
@@ -169,11 +171,11 @@ impl StackItem for Map {
 		todo!()
 	}
 
-	fn convert_to(&self, ty: StackItemType) -> Box<dyn StackItem> {
+	fn convert_to(&self, ty: StackItemType) -> Box<VMStackItem> {
 		todo!()
 	}
 
-	fn get_slice(&self) -> &[u8] {
+	fn get_slice(&self) -> Vec<u8> {
 		panic!("Cannot get slice of map")
 	}
 
@@ -183,41 +185,55 @@ impl StackItem for Map {
 	fn get_boolean(&self) -> bool {
 		true
 	}
-	fn deep_copy(&self, asImmutable: bool) -> Box<dyn StackItem> {
+	fn deep_copy(&self, asImmutable: bool) -> Box<VMStackItem> {
 		todo!()
 	}
 
-	fn deep_copy_with_ref_map(&self, ref_map: &HashMap<&dyn StackItem, &dyn StackItem>, asImmutable: bool) -> Box<dyn StackItem> {
-		todo!()
+	fn deep_copy_with_ref_map(&self, ref_map: &HashMap<&VMStackItem, &VMStackItem>, asImmutable: bool) -> Box<VMStackItem> {
+		let mut new_map = VMMap::new(self.reference_counter.clone());
+		for (key, value) in self.dictionary.iter() {
+			let new_key = key.deep_copy_with_ref_map(ref_map, asImmutable);
+			let new_value = value.deep_copy_with_ref_map(ref_map, asImmutable);
+			new_map.insert(new_key, new_value);
+		}
+		Box::new(new_map)
 	}
 
-	fn equals(&self, other: &Option<dyn StackItem>) -> bool {
-		todo!()
+	fn equals(&self, other: &VMStackItem) -> bool {
+		if let Some(other_map) = other.get_interface::<VMMap>() {
+			self.dictionary == other_map.dictionary
+		} else {
+			false
+		}
 	}
 
-	fn equals_with_limits(&self, other: &dyn StackItem, limits: &ExecutionEngineLimits) -> bool {
-		todo!()
+	fn equals_with_limits(&self, other: &VMStackItem, limits: &ExecutionEngineLimits) -> bool {
+		if let Some(other_map) = other.get_interface::<VMMap>() {
+			self.dictionary == other_map.dictionary
+		} else {
+			false
+		}
 	}
 
 	fn get_integer(&self) -> BigInt {
-		todo!()
+		panic!("Cannot get integer of map")
 	}
 
 	fn get_interface<T: Any>(&self) -> Option<&T> {
-		todo!()
+		panic!("Cannot get interface of map")
 	}
 
 	fn get_bytes(&self) -> &[u8] {
-		todo!()
+		panic!("Cannot get bytes of map")
 	}
 }
 
-impl CompoundType for Map {
+impl CompoundType for VMMap {
 	fn count(&self) -> usize {
 		self.dictionary.len()
 	}
 
-	fn sub_items(&self) -> Vec<Rc<RefCell<dyn StackItem>>> {
+	fn sub_items(&self) -> Vec<Ref<RefCell<VMStackItem>>> {
 		self.dictionary.keys().chain(self.dictionary.values()).cloned().collect()
 	}
 
@@ -250,12 +266,12 @@ impl CompoundType for Map {
 	}
 }
 
-impl PartialEq for Map {
+impl PartialEq for VMMap {
 	fn eq(&self, other: &Self) -> bool {
 		self.dictionary == other.dictionary
 	}
 }
-impl Clone for Map {
+impl Clone for VMMap {
 	fn clone(&self) -> Self {
 		let mut result = Self::new(self.reference_counter.clone());
 		// ref_map.insert(self, result.clone());

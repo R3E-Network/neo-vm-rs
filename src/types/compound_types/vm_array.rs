@@ -1,49 +1,43 @@
-use crate::{
-	reference_counter::ReferenceCounter,
-	stack_item::{ObjectReferenceEntry, StackItem},
-	stack_item_type::StackItemType,
-	types::compound_types::{
-		compound_type::{CompoundType},
-		Struct::Struct,
-	},
-};
 use std::{
 	cell::{Ref, RefCell},
 	collections::HashMap,
-	fmt::Debug,
-	hash::Hash,
 	ops::Index,
 	rc::Rc,
 };
-use std::any::Any;
 use num_bigint::BigInt;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use serde::ser::SerializeSeq;
-use crate::execution_engine_limits::ExecutionEngineLimits;
+use crate::{execution_engine_limits::ExecutionEngineLimits, vm_error::VMError};
+use crate::types::compound_types::compound_type::CompoundType;
+use crate::types::compound_types::vm_compound::VMCompound;
+use crate::types::compound_types::vm_struct::VMStruct;
+use crate::types::stack_item::{ObjectReferenceEntry, StackItem};
+use crate::types::stack_item_type::StackItemType;
+use crate::types::vm_stack_item::VMStackItem;
+use crate::vm::reference_counter::ReferenceCounter;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]
-pub struct Array {
+pub struct VMArray {
 	pub stack_references: u32,
 	pub reference_counter: Option<Rc<RefCell<ReferenceCounter>>>,
-	pub object_references: RefCell<Option<HashMap<dyn CompoundType, ObjectReferenceEntry>>>,
+	pub object_references: RefCell<Option<HashMap<VMCompound, ObjectReferenceEntry>>>,
 	pub dfn: isize,
 	pub low_link: usize,
 	pub on_stack: bool,
-	pub array: Vec<Rc<RefCell<dyn StackItem>>>,
+	pub array: Vec<Rc<RefCell<VMStackItem>>>,
 	pub read_only: bool,
 }
 
-impl Index<usize> for Array {
-	type Output = Rc<RefCell<dyn StackItem>>;
+impl Index<usize> for VMArray {
+	type Output = Rc<RefCell<VMStackItem>>;
 
 	fn index(&self, index: usize) -> &Self::Output {
 		&self.array[index]
 	}
 }
 
-impl Array {
+impl VMArray {
 	pub fn new(
-		items: Option<Vec<Rc<RefCell<dyn StackItem>>>>,
+		items: Option<Vec<Rc<RefCell<VMStackItem>>>>,
 		reference_counter: Option<Rc<RefCell<ReferenceCounter>>>,
 	) -> Self {
 		let items = items.unwrap_or_default();
@@ -59,7 +53,7 @@ impl Array {
 		}
 	}
 
-	pub fn add(&mut self, item: Rc<RefCell<dyn StackItem>>) {
+	pub fn add(&mut self, item: Rc<RefCell<VMStackItem>>) {
 		self.array.push(item);
 	}
 
@@ -67,20 +61,20 @@ impl Array {
 		self.array.clear();
 	}
 
-	pub fn convert_to(&self, ty: StackItemType) -> Box<dyn StackItem> {
+	pub fn convert_to(&self, ty: StackItemType) -> Box<VMStackItem> {
 		match ty {
 			StackItemType::Array => self.clone().into(),
-			StackItemType::Struct => Struct::from(self).into(),
+			StackItemType::Struct => VMStruct::from(self).into(),
 			_ => self.clone().into(),
 		}
 	}
 
-	pub fn deep_copy(&self, map: &mut HashMap<&dyn StackItem, dyn StackItem>) -> Box<dyn StackItem> {
+	pub fn deep_copy(&self, map: &mut HashMap<&VMStackItem, VMStackItem>) -> Box<VMStackItem> {
 		if let Some(item) = map.get(self.into()) {
 			return item.clone()
 		}
 
-		let mut result = Array::new(None, None);
+		let mut result = VMArray::new(None, None);
 		map.insert(self.into(), result.clone().into());
 
 		for item in &self.array {
@@ -90,7 +84,7 @@ impl Array {
 		result.into()
 	}
 
-	pub fn iter(&self) -> std::slice::Iter<Rc<RefCell<dyn StackItem>>> {
+	pub fn iter(&self) -> std::slice::Iter<Rc<RefCell<VMStackItem>>> {
 		self.array.iter()
 	}
 
@@ -103,41 +97,14 @@ impl Array {
 	}
 }
 
-impl Clone for Array {
-	fn clone(&self) -> Self {
-		todo!()
-	}
-}
 
-impl PartialEq<Self> for Array {
+impl PartialEq<Self> for VMArray {
 	fn eq(&self, other: &Self) -> bool {
 		todo!()
 	}
 }
 
-impl Serialize for Array {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-		let mut seq = serializer.serialize_seq(Some(self.array.len()))?;
-		for item in self.array.iter() {
-			seq.serialize_element(item)?;
-		}
-		seq.end()
-	}
-}
-
-impl Deserialize for Array {
-	fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
-		let items = Vec::<Rc<RefCell<dyn StackItem>>>::deserialize(deserializer)?;
-		Ok(Array::new(Some(items), None))
-	}
-}
-
-impl StackItem for Array {
-	const TRUE: Self = Array::new(None, None);
-
-	const FALSE: Self = Array::new(None, None);
-
-	const NULL: Self = Default::default();
+impl StackItem for VMArray {
 
 	fn dfn(&self) -> isize {
 		self.dfn
@@ -163,12 +130,12 @@ impl StackItem for Array {
 		self.on_stack = on_stack;
 	}
 
-	fn set_object_references(&mut self, refs: Self::ObjectReferences) {
+	fn set_object_references(&mut self, refs: RefCell<HashMap<VMCompound, ObjectReferenceEntry>>) {
 		self.object_references = refs;
 	}
 
-	fn object_references(&self) -> &Self::ObjectReferences {
-		&self.object_references
+	fn object_references(&self) -> RefCell<HashMap<VMCompound, ObjectReferenceEntry>> {
+		self.object_references
 	}
 
 	fn set_stack_references(&mut self, count: usize) {
@@ -183,18 +150,25 @@ impl StackItem for Array {
 		todo!()
 	}
 
-	fn convert_to(&self, ty: StackItemType) -> Box<dyn StackItem> {
+	fn convert_to(&self, ty: StackItemType) -> Result<VMStackItem, VMError> {
 		if self.get_type() == StackItemType::Array && ty == StackItemType::Struct {
-			return StackItem::from(Struct::new(
+			return Ok(VMStackItem::from(VMStruct::new(
 				Some(self.array.clone()),
 				self.reference_counter.clone(),
-			))
+			)));
 		}
 
-		self.convert_to(ty)?
+		match ty {
+			StackItemType::Array => Ok(VMStackItem::Array(self.clone())),
+			StackItemType::Struct => Ok(VMStackItem::from(VMStruct::new(
+				Some(self.array.clone()),
+				self.reference_counter.clone(),
+			))),
+			_ => Err(VMError::InvalidType(format!("Cannot convert Array to {}", ty))),
+		}
 	}
 
-	fn get_slice(&self) -> &[u8] {
+	fn get_slice(&self) -> Vec<u8> {
 		panic!("Cannot get slice of array")
 	}
 
@@ -204,11 +178,11 @@ impl StackItem for Array {
 	fn get_boolean(&self) -> bool {
 		true
 	}
-	fn deep_copy(&self, asImmutable: bool) -> Box<dyn StackItem> {
-		let result = if let StackItem::VMStruct(_) = self {
-			StackItem::VMStruct(Struct::new(None, self.reference_counter.clone()))
+	fn deep_copy(&self, asImmutable: bool) -> Box<VMStackItem> {
+		let result = if let VMStackItem::Struct(_) = self {
+			VMStackItem::Struct(VMStruct::new(None, self.reference_counter.clone()))
 		} else {
-			StackItem::VMArray(Array::new(None, self.reference_counter.clone()))
+			VMStackItem::Array(VMArray::new(None, self.reference_counter.clone()))
 		};
 
 		for item in self.array.iter() {
@@ -224,13 +198,13 @@ impl StackItem for Array {
 
 	fn deep_copy_with_ref_map(
 		&self,
-		ref_map: &HashMap<&dyn StackItem, &dyn StackItem>,
+		ref_map: &HashMap<&VMStackItem, &VMStackItem>,
 		asImmutable: bool,
-	) -> Box<dyn StackItem> {
+	) -> Box<VMStackItem> {
 		let result = if let StackItemType::Struct = self.get_type() {
-			StackItem::VMStruct(Struct::new(None, self.reference_counter.clone()))
+			VMStackItem::Struct(VMStruct::new(None, self.reference_counter.clone()))
 		} else {
-			StackItem::VMArray(Array::new(None, self.reference_counter.clone()))
+			VMStackItem::Array(VMArray::new(None, self.reference_counter.clone()))
 		};
 
 		for item in self.array.iter() {
@@ -244,7 +218,7 @@ impl StackItem for Array {
 		result
 	}
 
-	fn equals(&self, other: &Option<dyn StackItem>) -> bool {
+	fn equals(&self, other: &VMStackItem) -> bool {
 		if let Some(other) = other {
 			if self.array.len() != other.as_array().len() {
 				return false;
@@ -260,7 +234,7 @@ impl StackItem for Array {
 		}
 	}
 
-	fn equals_with_limits(&self, other: &dyn StackItem, limits: &ExecutionEngineLimits) -> bool {
+	fn equals_with_limits(&self, other: &VMStackItem, limits: &ExecutionEngineLimits) -> bool {
 		if self.array.len() > limits.max_comparable_size || other.as_array().len() > limits.max_comparable_size {
 			panic!("Max comparable size exceeded")
 		} else {
@@ -277,12 +251,12 @@ impl StackItem for Array {
 	}
 }
 
-impl CompoundType for Array {
+impl CompoundType for VMArray {
 	fn count(&self) -> usize {
 		self.array.len()
 	}
 
-	fn sub_items(&self) -> Vec<Ref<RefCell<dyn StackItem>>> {
+	fn sub_items(&self) -> Vec<Ref<RefCell<VMStackItem>>> {
 		self.array.iter().collect()
 	}
 
@@ -315,12 +289,12 @@ impl CompoundType for Array {
 }
 
 
-impl Clone for Array {
+impl Clone for VMArray {
 	fn clone(&mut self) -> Self {
-		let result = if let StackItem::VMStruct(_) = self {
-			StackItem::VMStruct(Struct::new(None, self.reference_counter.clone()))
+		let result = if let VMStackItem::Struct(_) = self {
+			VMStackItem::Struct(VMStruct::new(None, self.reference_counter.clone()))
 		} else {
-			StackItem::VMArray(Array::new(None, self.reference_counter.clone()))
+			VMStackItem::Array(VMArray::new(None, self.reference_counter.clone()))
 		};
 
 		self.array.append( result.clone());

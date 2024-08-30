@@ -1,38 +1,36 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use serde::__private::de::Content::String;
-use crate::{
-	stack_item::{StackItem},
-};
-use crate::buffer::Buffer;
-use crate::primitive_types::boolean::Boolean;
-use crate::primitive_types::byte_string::ByteString;
-use crate::primitive_types::integer::Integer;
-use crate::stack_item_type::StackItemType;
+use crate::types::primitive_types::vm_byte_string::VMByteString;
+use crate::types::primitive_types::vm_integer::VMInteger;
+use crate::types::stack_item::StackItem;
+use crate::types::stack_item_type::StackItemType;
+use crate::types::vm_buffer::VMBuffer;
+use crate::types::vm_stack_item::VMStackItem;
+use crate::vm_error::VMError;
 
-pub trait PrimitiveType: StackItem + Clone {
-	fn memory(&self) -> &[u8];
+pub trait PrimitiveType: StackItem {
+	fn memory(&self) -> Vec<u8>;
 
 	/// The size of the vm object in bytes.
 	fn size(&self) -> usize {
 		self.memory().len()
 	}
 
-	fn convert_to(&self, type_: StackItemType) -> Result<Self, Err>  {
+	fn convert_to(&self, type_: StackItemType) -> Result<VMStackItem, VMError>  {
 		match type_ {
-			StackItemType::Integer => Ok(Integer::from(self.get_integer())),
-			StackItemType::ByteString =>  Ok(ByteString::from( String::from_utf8(self.memory())?)),
-			StackItemType::Buffer =>  Ok(Buffer::from(self.get_slice()).into()),
-			StackItemType::Boolean =>  Ok(Boolean::from(self.get_boolean().into()).into()),
+			StackItemType::Integer => Ok(VMInteger::from(self.get_integer())),
+			StackItemType::ByteString =>  Ok(VMByteString::from( String::from_utf8(self.memory())?)),
+			StackItemType::Buffer =>  Ok(VMBuffer::from(self.get_slice()).into()),
+			StackItemType::Boolean =>  Ok(VMBoolean::from(self.get_boolean().into()).into()),
 			_ => panic!(), //self.base_convert_to(ty),
 		}
 	}
 
-	fn deep_copy_with_ref_map(&self, ref_map: &HashMap<&dyn StackItem, &dyn StackItem>) -> Box<dyn StackItem> {
-		self.clone()
+	fn deep_copy_with_ref_map(&self, ref_map: &HashMap<&VMStackItem, &VMStackItem>) -> Box<VMStackItem> {
+		
 	}
 
-	fn get_slice(&self) -> &[u8]{
+	fn get_slice(&self) -> Vec<u8>{
 		self.memory()
 	}
 }

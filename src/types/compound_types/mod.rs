@@ -1,4 +1,5 @@
-pub mod Struct;
-pub mod array;
+pub mod vm_struct;
+pub mod vm_array;
 pub mod compound_type;
-pub mod map;
+pub mod vm_map;
+pub mod vm_compound;

@@ -1,18 +1,13 @@
-pub mod execution_engine_limits;
-pub mod interop_interface;
-pub mod reference_counter;
+pub mod vm_interop_interface;
 pub mod stack_item;
 pub mod stack_item_type;
-pub mod tarjan;
 
-pub mod buffer;
-
-pub mod null;
-
-pub mod pointer;
-
+pub mod vm_buffer;
+pub mod vm_null;
+pub mod vm_pointer;
 pub mod compound_types;
 pub mod primitive_types;
+pub mod vm_stack_item;
 
 pub fn add(left: usize, right: usize) -> usize {
 	left + right

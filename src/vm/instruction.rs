@@ -14,6 +14,7 @@ enum Error {
 	InvalidPrefixSize(usize),
 	OperandOutOfBounds { instruction_pointer: usize, operand_size: usize, script_length: usize },
 }
+
 impl Instruction {
 	pub const RET: Self = Self { opcode: OpCode::Ret, operand: Vec::new() };
 

@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use crate::reference_counter::ReferenceCounter;
-use crate::stack_item::StackItem;
+use crate::types::vm_stack_item::VMStackItem;
+use crate::vm::reference_counter::ReferenceCounter;
+use crate::types::stack_item::StackItem;
 
 pub struct EvaluationStack {
 	inner_list: VecDeque<Rc<RefCell<dyn StackItem>>>,
@@ -18,29 +19,26 @@ impl EvaluationStack {
 		}
 	}
 
-	pub fn clear(&mut self) {
-		for item in &self.inner_list {
-			self.reference_counter.remove_stack_reference(item);
-		}
-		self.inner_list.clear();
-	}
+    pub fn clear(&mut self) {
+        for item in self.inner_list.iter() {
+            self.reference_counter.borrow_mut().remove_stack_reference(item);
+        }
+        self.inner_list.clear();
+    }
 
-	pub fn copy_to(&self, stack: &mut EvaluationStack, count: i32) {
-		if count < -1 || count as usize > self.inner_list.len() {
-			panic!("Argument out of range");
-		}
-		if count == 0 {
-			return;
-		}
-		if count == -1 || count as usize == self.inner_list.len() {
-			stack.inner_list.extend(&self.inner_list);
-		} else {
-			let start = self.inner_list.len() - count as usize;
-			stack.inner_list.extend(&self.inner_list[start..]);
-		}
-	}
+    pub fn copy_to(&self, stack: &mut EvaluationStack, count: Option<usize>) {
+        let count = count.unwrap_or(self.inner_list.len());
+        if count == 0 {
+            return;
+        }
+        let start = self.inner_list.len().saturating_sub(count);
+        stack.inner_list.extend_from_slice(&self.inner_list[start..]);
+        for item in &self.inner_list[start..] {
+            stack.reference_counter.borrow_mut().add_stack_reference(item);
+        }
+    }
 
-	pub fn insert(&mut self, index: usize, item: Rc<RefCell<dyn StackItem>>) {
+	pub fn insert(&mut self, index: usize, item: Rc<RefCell<VMStackItem>>) {
 		if index > self.inner_list.len() {
 			panic!("Insert out of bounds");
 		}
@@ -61,7 +59,7 @@ impl EvaluationStack {
 		}
 	}
 
-	pub fn peek(&self, index: i32) -> Rc<RefCell<dyn StackItem>> {
+	pub fn peek(&self, index: i32) -> Rc<RefCell<VMStackItem>> {
 		let index = index as isize;
 		if index >= self.inner_list.len() as isize {
 			panic!("Peek out of bounds");
@@ -75,7 +73,7 @@ impl EvaluationStack {
 		self.inner_list.get((self.inner_list.len() as isize - index - 1) as usize).unwrap().clone()
 	}
 
-	pub fn push(&mut self, item: Rc<RefCell<dyn StackItem>>) {
+	pub fn push(&mut self, item: Rc<RefCell<VMStackItem>>) {
 		self.inner_list.push_back(item);
 		self.reference_counter.add_stack_reference(&item);
 	}
@@ -92,7 +90,7 @@ impl EvaluationStack {
 		self.inner_list.make_contiguous().reverse();
 	}
 
-	pub fn pop(&mut self) -> Rc<RefCell<dyn StackItem>> {
+	pub fn pop(&mut self) -> Rc<RefCell<VMStackItem>> {
 		self.remove(0)
 	}
 

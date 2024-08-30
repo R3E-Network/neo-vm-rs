@@ -1,7 +1,6 @@
 use crate::{
 	evaluation_stack::EvaluationStack,
 	exception::exception_handling_context::ExceptionHandlingContext,
-	reference_counter::ReferenceCounter, slot::Slot, stack_item::StackItem, vm::script::Script,
 };
 use std::{
 	any::{Any, TypeId},
@@ -10,8 +9,10 @@ use std::{
 	rc::Rc,
 };
 use crate::instruction::Instruction;
+use crate::slot::Slot;
+use crate::vm::reference_counter::ReferenceCounter;
+use crate::vm::script::Script;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct ExecutionContext {
 	pub shared_states: Rc<RefCell<SharedStates>>,
 	pub instruction_pointer: usize,
@@ -69,23 +70,23 @@ impl ExecutionContext {
 			.unwrap()
 	}
 
-	// pub fn peek(&self, index: usize) -> Rc<RefCell<dyn StackItem>> {
+	// pub fn peek(&self, index: usize) -> Rc<RefCell<VMStackItem>> {
 	// 	let idx = self.items.len() - index - 1;
 	// 	&self.items[idx]
 	// }
 
-	// pub fn push(&mut self, item:Rc<RefCell<dyn StackItem>>) {
+	// pub fn push(&mut self, item:Rc<RefCell<VMStackItem>>) {
 	// 	self.items.push(item);
 	// 	self.reference_counter.add_stack_reference(&item);
 	// }
 	//
-	// pub fn pop(&mut self) -> Rc<RefCell<dyn StackItem>> {
+	// pub fn pop(&mut self) -> Rc<RefCell<VMStackItem>> {
 	// 	let item = self.items.pop().expect("stack empty");
 	// 	self.reference_counter.remove_stack_reference(&item);
 	// 	item
 	// }
 	//
-	// pub fn remove(&mut self, index: usize) -> Rc<RefCell<dyn StackItem>> {
+	// pub fn remove(&mut self, index: usize) -> Rc<RefCell<VMStackItem>> {
 	// 	let idx = self.items.len() - index - 1;
 	// 	let item = self.items.remove(idx).expect("index out of bounds");
 	// 	self.reference_counter.remove_stack_reference(&item);

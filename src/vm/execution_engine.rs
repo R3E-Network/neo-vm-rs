@@ -1,23 +1,8 @@
 use crate::{
-	buffer::Buffer,
-	compound_types::{array::Array, compound_type::CompoundType, map::Map, Struct::Struct},
-	evaluation_stack::EvaluationStack,
-	exception::{
+	evaluation_stack::EvaluationStack, exception::{
 		exception_handling_context::ExceptionHandlingContext,
 		exception_handling_state::ExceptionHandlingState,
-	},
-	execution_context::{ExecutionContext, SharedStates},
-	execution_engine_limits::ExecutionEngineLimits,
-	instruction::Instruction,
-	null::Null,
-	op_code::OpCode,
-	pointer::Pointer,
-	primitive_types::{byte_string::ByteString, primitive_type::PrimitiveType},
-	reference_counter::ReferenceCounter,
-	slot::Slot,
-	stack_item_type::StackItemType,
-	vm::{script::Script, vm_exception::VMException},
-	vm_state::VMState,
+	}, execution_context::{ExecutionContext, SharedStates}, instruction::Instruction, op_code::OpCode, slot::Slot, types::vm_stack_item::VMStackItem, vm::script::Script, vm_state::VMState
 };
 use num_bigint::{BigInt, Sign};
 use num_traits::{FromBytes, Signed, ToPrimitive, Zero};
@@ -28,13 +13,23 @@ use std::{
 	ops::Neg,
 	rc::Rc,
 };
-use serde::Serialize;
-use crate::primitive_types::boolean::Boolean;
-use crate::primitive_types::integer::Integer;
-use crate::stack_item::StackItem;
+use crate::types::compound_types::vm_array::VMArray;
+use crate::types::compound_types::vm_map::VMMap;
+use crate::types::compound_types::vm_struct::VMStruct;
+use crate::vm::execution_engine_limits::ExecutionEngineLimits;
+use crate::types::primitive_types::primitive_type::PrimitiveType;
+use crate::types::primitive_types::vm_integer::VMInteger;
+use crate::vm::reference_counter::ReferenceCounter;
+use crate::types::stack_item::StackItem;
+use crate::types::stack_item_type::StackItemType;
+use crate::types::vm_buffer::VMBuffer;
+use crate::types::vm_null::VMNull;
+use crate::types::vm_pointer::VMPointer;
+
+use super::vm_exception::VMError;
 
 /// Represents the VM used to execute the script.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+
 pub struct ExecutionEngine {
 	/// Restrictions on the VM.
 	pub limits: ExecutionEngineLimits,
@@ -55,7 +50,7 @@ pub struct ExecutionEngine {
 	pub result_stack: Rc<RefCell<EvaluationStack>>,
 
 	/// The VM object representing the uncaught exception.
-	pub uncaught_exception: Option<Rc<RefCell<dyn StackItem>>>,
+	pub uncaught_exception: Option<Rc<RefCell<VMStackItem>>>,
 
 	/// The current state of the VM.
 	pub state: VMState,
@@ -133,7 +128,7 @@ impl ExecutionEngine {
 
 			match self.execute_instruction(instruction) {
 				Ok(_) => (),
-				Err(e) => Err(VMException::InvalidOpcode("{e}".parse().unwrap())), // self.on_fault(e),
+				Err(e) => Err(VMError::InvalidOpcode("{e}".parse().unwrap())), // self.on_fault(e),
 			}
 
 			self.post_execute_instruction(instruction);
@@ -145,7 +140,7 @@ impl ExecutionEngine {
 		}
 	}
 
-	fn pop(&mut self) -> Rc<RefCell<dyn StackItem>> {
+	fn pop(&mut self) -> Rc<RefCell<VMStackItem>> {
 		self.current_context
 			.unwrap()
 			.get_mut()
@@ -154,7 +149,7 @@ impl ExecutionEngine {
 			.pop()
 	}
 
-	fn push(&mut self, item: Rc<RefCell<dyn StackItem>>) {
+	fn push(&mut self, item: Rc<RefCell<VMStackItem>>) {
 		self.current_context
 			.unwrap()
 			.get_mut()
@@ -163,7 +158,7 @@ impl ExecutionEngine {
 			.push(item);
 	}
 
-	fn peek(&self, index: usize) -> Rc<RefCell<dyn StackItem>> {
+	fn peek(&self, index: usize) -> Rc<RefCell<VMStackItem>> {
 		self.current_context
 			.unwrap()
 			.borrow()
@@ -173,7 +168,7 @@ impl ExecutionEngine {
 			.unwrap()
 	}
 
-	fn execute_instr(&mut self, instr: Instruction) -> Result<VMState, VMException> {
+	fn execute_instr(&mut self, instr: Instruction) -> Result<VMState, VMError> {
 		match instr.opcode {
 			//Push
 			OpCode::PushInt8
@@ -181,9 +176,9 @@ impl ExecutionEngine {
 			| OpCode::PushInt32
 			| OpCode::PushInt64
 			| OpCode::PushInt128
-			| OpCode::PushInt256 => self.push(Rc::new(RefCell::new(Integer::new(&BigInt::from_be_bytes(instr.operand.as_slice()))))),
-			OpCode::PushTrue => self.push(Rc::new(RefCell::new(Boolean::new(true)))),
-			OpCode::PushFalse => self.push(Rc::new(RefCell::new(Boolean::new(false)))),
+			| OpCode::PushInt256 => self.push(Rc::new(RefCell::new(VMInteger::new(&BigInt::from_be_bytes(instr.operand.as_slice()))))),
+			OpCode::PushTrue => self.push(Rc::new(RefCell::new(VMBoolean::new(true)))),
+			OpCode::PushFalse => self.push(Rc::new(RefCell::new(VMBoolean::new(false)))),
 			OpCode::PushA => {
 				let position = (self.current_context?.get_mut().instruction_pointer as i32)
 					.checked_add(instr.token_i32())
@@ -191,19 +186,19 @@ impl ExecutionEngine {
 				if position < 0
 					|| position > self.current_context?.get_mut().script().len() as i32
 				{
-					// return Err(VMException::InvalidOpcode("Bad pointer address: {position}");
-					return Err(VMException::new(Error::new("Bad pointer address")))
+					// return Err(VMError::InvalidOpcode("Bad pointer address: {position}");
+					return Err(VMError::new(Error::new("Bad pointer address")))
 				}
 
 				self.push(
-					StackItem::VMPointer(Pointer::new(
+					StackItem::VMPointer(VMPointer::new(
 						&self.current_context?.get_mut().script(),
 						position as usize,
 					))
 					.into(),
 				)
 			},
-			OpCode::PushNull => self.push(StackItem::VMNull(Null::default()).into()),
+			OpCode::PushNull => self.push(StackItem::VMNull(VMNull::default()).into()),
 			OpCode::PushData1 | OpCode::PushData2 | OpCode::PushData4 => {
 				self.limits.assert_max_item_size(instr.operand.len() as u32);
 				self.push(StackItem::from(instr.operand).into())
@@ -337,9 +332,9 @@ impl ExecutionEngine {
 			OpCode::CallL => self
 				.execute_call((self.current_context?.get_mut().instruction_pointer + instr.token_i32()) as i32),
 			OpCode::CallA => {
-				let x: Pointer = self.pop().into();
+				let x: VMPointer = self.pop().into();
 				if x.script() != self.current_context?.get_mut().script() {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"Pointers can't be shared between scripts".parse().unwrap(),
 					))
 				}
@@ -347,11 +342,11 @@ impl ExecutionEngine {
 			},
 			OpCode::CallT => self.load_token(instr.token_u16()),
 			OpCode::Abort =>
-				Err(VMException::InvalidOpcode("{OpCode::ABORT} is executed.".parse().unwrap())),
+				Err(VMError::InvalidOpcode("{OpCode::ABORT} is executed.".parse().unwrap())),
 			OpCode::Assert => {
 				let x = self.pop().get_bool();
 				if !x {
-					Err(VMException::InvalidOpcode(
+					Err(VMError::InvalidOpcode(
 						"{OpCode::ASSERT} is executed with false result.".parse().unwrap(),
 					))
 				}
@@ -379,14 +374,14 @@ impl ExecutionEngine {
 			},
 			OpCode::EndFinally => {
 				if self.current_context?.get_mut().try_stack.is_none() {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The corresponding TRY block cannot be found.".parse().unwrap(),
 					))
 				}
 				let current_try = match self.current_context?.get_mut().try_stack {
 					Some(ref mut x) => x,
 					None =>
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"The corresponding TRY block cannot be found.".parse().unwrap(),
 						)),
 				};
@@ -417,7 +412,7 @@ impl ExecutionEngine {
 					if context_pop.borrow().rv_count >= 0
 						&& context_pop.get_mut().evaluation_stack().get_mut().len() != context_pop.borrow().rv_count as usize
 					{
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"RVCount doesn't match with EvaluationStack".parse().unwrap(),
 						))
 					}
@@ -440,7 +435,7 @@ impl ExecutionEngine {
 			OpCode::Xdrop => {
 				let n = self.pop().get_integer().to_i32().unwrap();
 				if n < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The negative value {n} is invalid for OpCode::{instr.OpCode}."
 							.parse()
 							.unwrap(),
@@ -454,7 +449,7 @@ impl ExecutionEngine {
 			OpCode::Pick => {
 				let n = self.pop().get_integer();
 				if n < BigInt::zero() {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The negative value {n} is invalid for OpCode::{instr.OpCode}."
 							.parse()
 							.unwrap(),
@@ -481,7 +476,7 @@ impl ExecutionEngine {
 			OpCode::Roll => {
 				let n = self.pop().get_integer().to_i64().unwrap();
 				if n < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The negative value {n} is invalid for OpCode::{instr.OpCode}."
 							.parse()
 							.unwrap(),
@@ -503,12 +498,12 @@ impl ExecutionEngine {
 			//Slot
 			OpCode::InitSSLot => {
 				if self.current_context?.get_mut().static_fields().is_some() {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"{instr.OpCode} cannot be executed twice.".parse().unwrap(),
 					))
 				}
 				if instr.token_u8() == 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The operand {instr.token_u8()} is invalid for OpCode::{instr.OpCode}."
 							.parse()
 							.unwrap(),
@@ -523,12 +518,12 @@ impl ExecutionEngine {
 				if self.current_context?.get_mut().local_variables.is_some()
 					|| self.current_context?.get_mut().arguments.is_some()
 				{
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"{instr.OpCode} cannot be executed twice.".parse().unwrap(),
 					))
 				}
 				if instr.token_u16() == 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The operand {instr.token_u16()} is invalid for OpCode::{instr.OpCode}."
 							.parse()
 							.unwrap(),
@@ -646,36 +641,36 @@ impl ExecutionEngine {
 			OpCode::NewBuffer => {
 				let length = self.pop().get_integer();
 				self.limits.assert_max_item_size(length.to_u32().unwrap());
-				self.push(StackItem::from(Buffer::new(length.to_usize().unwrap())).into())
+				self.push(StackItem::from(VMBuffer::new(length.to_usize().unwrap())).into())
 			},
 			OpCode::MemCpy => {
 				let count = self.pop().get_integer().to_i64().unwrap();
 				if count < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
 				let si = self.pop().get_integer().to_i64().unwrap();
 				if si < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {si} is out of range.".parse().unwrap(),
 					))
 				}
 				let src = self.pop().get_mut().get_slice();
 				if si.checked_add(count).unwrap() > src.len() as i64 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
 				let di = self.pop().get_mut().get_integer().to_i64().unwrap();
 				if di < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {di} is out of range.".parse().unwrap(),
 					))
 				}
-				let dst: Buffer = self.pop().into();
+				let dst: VMBuffer = self.pop().into();
 				if di.checked_add(count)? > dst.size() as i64 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
@@ -686,7 +681,7 @@ impl ExecutionEngine {
 				let x1 = self.pop().GetSpan();
 				let length = x1.Length + x2.Length;
 				self.limits.assert_max_item_size(length);
-				let result = Buffer::new(length); //, false);
+				let result = VMBuffer::new(length); //, false);
 				x1.CopyTo(result.get_slice());
 				x2.CopyTo(result.get_slice()[x1.Length..]);
 				self.push(StackItem::from(result).into())
@@ -695,57 +690,57 @@ impl ExecutionEngine {
 			OpCode::Substr => {
 				let count = self.pop().get_integer().to_usize().unwrap();
 				if count < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
 				let index = self.pop().get_integer().to_usize().unwrap();
 				if index < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {index} is out of range.".parse().unwrap(),
 					))
 				}
 				let x = self.pop().GetSpan();
 				if index + count > x.Length {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
-				let result = Buffer::new(count); //, false);
+				let result = VMBuffer::new(count); //, false);
 				x.Slice(index, count).CopyTo(result.get_slice());
 				self.push(StackItem::from(result).into())
 			},
 			OpCode::Left => {
 				let count = self.pop().get_integer().to_i32().unwrap();
 				if count < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
 				let x = self.pop().GetSpan();
 				if count > x.Length {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
-				let result = Buffer::new(count as usize); //, false);
+				let result = VMBuffer::new(count as usize); //, false);
 				x[..count].CopyTo(result.get_slice());
 				self.push(StackItem::from(result).into())
 			},
 			OpCode::Right => {
 				let count = self.pop().get_integer().to_i32().unwrap();
 				if count < 0 {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
 				let x = self.pop().get_slice();
 				if count > x.Length {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {count} is out of range.".parse().unwrap(),
 					))
 				}
-				let result = Buffer::from(x); //, false);
+				let result = VMBuffer::from(x); //, false);
 							  // x[^count.. ^ 0].CopyTo(result.InnerBuffer.Span);
 				self.push(StackItem::from(result).into())
 				// break;
@@ -967,13 +962,13 @@ impl ExecutionEngine {
 			OpCode::PackMap => {
 				let size = self.pop().get_integer().to_usize().unwrap();
 				if size < 0 || size * 2 > self.current_context?.get_mut().evaluation_stack().borrow().size() {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {size} is out of range.".parse().unwrap(),
 					))
 				}
-				let map = Map::new(Some(self.reference_counter.clone()));
+				let map = VMMap::new(Some(self.reference_counter.clone()));
 				for i in 0..size {
-					let key: dyn PrimitiveType = self.pop().into();
+					let key: VMPrimitive = self.pop().into();
 					let value = self.pop();
 					map[key] = value;
 				}
@@ -982,11 +977,11 @@ impl ExecutionEngine {
 			OpCode::PackStruct => {
 				let size = self.pop().get_integer().to_i64().unwrap();
 				if size < 0 || size > self.current_context?.get_mut().evaluation_stack().borrow().size() {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {size} is out of range.".parse().unwrap(),
 					))
 				}
-				let _struct = Struct::new(None, Some(self.reference_counter.clone()));
+				let _struct = VMStruct::new(None, Some(self.reference_counter.clone()));
 				for i in 0..size {
 					let item = self.pop();
 					_struct.Add(item);
@@ -999,11 +994,11 @@ impl ExecutionEngine {
 				if size < 0
 					|| size > self.current_context.unwrap().evaluation_stack().len()
 				{
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"The value {size} is out of range.".parse().unwrap(),
 					))
 				}
-				let array = Array::new(None, Some(self.reference_counter.clone()));
+				let array = VMArray::new(None, Some(self.reference_counter.clone()));
 				for i in 0..size {
 					let item = self.pop();
 					array.Add(item);
@@ -1011,7 +1006,7 @@ impl ExecutionEngine {
 				self.push(StackItem::from(array).into())
 			},
 			OpCode::Unpack => {
-				let compound: dyn CompoundType = self.pop().into();
+				let compound: VMCompound = self.pop().into();
 				match compound {
 					CompoundType::VMMap(map) =>
 						for (key, value) in map.values().rev() {
@@ -1026,27 +1021,27 @@ impl ExecutionEngine {
 						},
 					// break;
 					_ =>
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"Invalid type for {instr.OpCode}: {compound.Type}".parse().unwrap(),
 						)),
 				}
 				self.push(StackItem::from(compound.count()).into())
 			},
 			OpCode::NewArray0 => self.push(
-				StackItem::from(Array::new(None, Some(self.reference_counter.clone()))).into(),
+				StackItem::from(VMArray::new(None, Some(self.reference_counter.clone()))).into(),
 			),
 			OpCode::NewArray | OpCode::NewArrayT => {
 				let n = self.pop().get_integer().to_i64().unwrap();
 				if n < 0 || n > self.limits.max_stack_size {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"MaxStackSize exceed: {n}".parse().unwrap(),
 					))
 				}
-				let item: dyn StackItem;
+				let item: VMStackItem;
 				if instr.opcode == OpCode::NewArrayT {
 					let _type = instr.token_u8();
 					if !StackItemType::is_valid(_type) {
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"Invalid type for {instr.OpCode}: {instr.token_u8()}".parse().unwrap(),
 						))
 					}
@@ -1054,13 +1049,13 @@ impl ExecutionEngine {
 						StackItemType::Boolean => StackItem::from(false),
 						StackItemType::Integer => StackItem::from(BigInt::zero()),
 						StackItemType::ByteString => StackItem::from(ByteString::new(Vec::new())),
-						_ => StackItem::from(Null::default()),
+						_ => StackItem::from(VMNull::default()),
 					};
 				} else {
-					item = StackItem::VMNull(Null::default());
+					item = StackItem::VMNull(VMNull::default());
 				}
 				self.push(
-					StackItem::from(Array::new(
+					StackItem::from(VMArray::new(
 						std::iter::repeat(item).take(n as usize).collect(),
 						Some(self.reference_counter.clone()),
 					))
@@ -1068,28 +1063,28 @@ impl ExecutionEngine {
 				)
 			},
 			OpCode::NewStruct0 => self.push(
-				StackItem::from(Struct::new(None, Some(self.reference_counter.clone()))).into(),
+				StackItem::from(VMStruct::new(None, Some(self.reference_counter.clone()))).into(),
 			),
 			OpCode::NewStruct => {
 				let n = self.pop().get_integer() as usize;
 				if n < 0 || n > self.limits.max_stack_size {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"MaxStackSize exceed: {n}".parse().unwrap(),
 					))
 				}
-				let result = Struct::new(None, Some(self.reference_counter.clone()));
+				let result = VMStruct::new(None, Some(self.reference_counter.clone()));
 				for i in 0..n {
-					result.Add(StackItem::from(Null::default()));
+					result.Add(StackItem::from(VMNull::default()));
 				}
 				self.push(StackItem::from(result).into())
 				// break;
 			},
 			OpCode::NewMap =>
-				self.push(StackItem::from(Map::new(Some(self.reference_counter.clone()))).into()),
+				self.push(StackItem::from(VMMap::new(Some(self.reference_counter.clone()))).into()),
 			OpCode::Size => {
 				let x = self.pop();
 				match x {
-					StackItem::VMArray(array) => self.push(StackItem::from(array.Count).into()),
+					VMStackItem::Array(array) => self.push(StackItem::from(array.Count).into()),
 					StackItem::VMMap(map) => self.push(StackItem::from(map.Count).into()),
 					StackItem::VMStruct(_struct) =>
 						self.push(StackItem::from(_struct.Count).into()),
@@ -1098,13 +1093,13 @@ impl ExecutionEngine {
 					StackItem::VMInteger(integer) =>
 						self.push(StackItem::from(integer.size()).into()),
 					_ =>
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap(),
 						)),
 				}
 			},
 			OpCode::HasKey => {
-				let key: Rc<RefCell<dyn PrimitiveType>> = self.pop().into();
+				let key: Rc<RefCell<VMPrimitive>> = self.pop().into();
 				let x = self.pop();
 				match x {
 					StackItem::VMMap(map) =>
@@ -1112,7 +1107,7 @@ impl ExecutionEngine {
 					StackItem::VMByteString(array) => {
 						let index = key.get_integer().to_u32().unwrap();
 						if index < 0 {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The negative value {index} is invalid for OpCode::{instr.OpCode}."
 									.parse()
 									.unwrap(),
@@ -1123,7 +1118,7 @@ impl ExecutionEngine {
 					StackItem::VMBuffer(buffer) => {
 						let index = key.get_integer().to_u32().unwrap();
 						if index < 0 {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The negative value {index} is invalid for OpCode::{instr.OpCode}."
 									.parse()
 									.unwrap(),
@@ -1131,10 +1126,10 @@ impl ExecutionEngine {
 						}
 						self.push(StackItem::from(index < buffer.size() as u32).into())
 					},
-					StackItem::VMArray(array) => {
+					VMStackItem::Array(array) => {
 						let index = key.get_integer().to_u32().unwrap();
 						if index < 0 {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The negative value {index} is invalid for OpCode::{instr.OpCode}."
 									.parse()
 									.unwrap(),
@@ -1144,16 +1139,16 @@ impl ExecutionEngine {
 						self.push(StackItem::from(index < array.count() as u32).into())
 					},
 					_ =>
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap(),
 						)),
 				}
 				// break;
 			},
 			OpCode::Keys => {
-				let map: Map = self.pop().into();
+				let map: VMMap = self.pop().into();
 				self.push(
-					StackItem::from(Array::new(
+					StackItem::from(VMArray::new(
 						Some(map.keys()),
 						Some(self.reference_counter.clone()),
 					))
@@ -1163,14 +1158,14 @@ impl ExecutionEngine {
 			OpCode::Values => {
 				let x = self.pop();
 				let values = match x {
-					StackItem::VMArray(array) => array,
+					VMStackItem::Array(array) => array,
 					StackItem::VMMap(map) => map.values(),
-					_ => panic!(), //return Err(VMException::InvalidOpcode("Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap())),
+					_ => panic!(), //return Err(VMError::InvalidOpcode("Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap())),
 				};
-				let mut new_array = Array::new(None, Some(self.reference_counter.clone()));
+				let mut new_array = VMArray::new(None, Some(self.reference_counter.clone()));
 				for item in values.array {
-					if item.get_item_type() == StackItemType::Struct {
-						let s: Struct = item.into();
+					if item.get_item_type() == StackItemType::VMStruct {
+						let s: VMStruct = item.into();
 						new_array.add(s.clone(&self.limits).try_into().unwrap());
 
 					// new_array.Add(s.Clone(self.limits));
@@ -1182,13 +1177,13 @@ impl ExecutionEngine {
 				self.push(StackItem::from(new_array).into())
 			},
 			OpCode::PickItem => {
-				let key: Rc<RefCell<dyn PrimitiveType>> = self.pop().into();
+				let key: Rc<RefCell<VMPrimitive>> = self.pop().into();
 				let x = self.pop();
 				match x {
-					StackItem::VMArray(array) => {
+					VMStackItem::Array(array) => {
 						let index = key.get_integer().to_i64().unwrap();
 						if index < 0 || index >= array.Count {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The value {index} is out of range.".parse().unwrap(),
 							))
 						}
@@ -1198,8 +1193,8 @@ impl ExecutionEngine {
 						let value = match map.get(key) {
 							Some(v) => v,
 							None =>
-								return Err(VMException::InvalidOpcode(
-									"Key not found in {nameof(Map)}".parse().unwrap(),
+								return Err(VMError::InvalidOpcode(
+									"Key not found in {nameof(VMMap)}".parse().unwrap(),
 								)),
 						};
 						self.push(StackItem::from(value).into())
@@ -1210,7 +1205,7 @@ impl ExecutionEngine {
 						let byte_array = integer.get_slice();
 						let index = key.get_integer().to_i64().unwrap();
 						if index < 0 || index >= byte_array.Length {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The value {index} is out of range.".parse().unwrap(),
 							))
 						}
@@ -1225,7 +1220,7 @@ impl ExecutionEngine {
 					StackItem::VMBuffer(buffer) => {
 						let index = key.get_integer().to_i64().unwrap();
 						if index < 0 || index >= buffer.Size {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The value {index} is out of range.".parse().unwrap(),
 							))
 						}
@@ -1238,7 +1233,7 @@ impl ExecutionEngine {
 						)
 					},
 					_ =>
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap(),
 						)),
 				}
@@ -1246,9 +1241,9 @@ impl ExecutionEngine {
 			},
 			OpCode::Append => {
 				let mut new_item = self.pop();
-				let array: Array = self.pop().into();
-				if new_item.get_item_type() == StackItemType::Struct {
-					let s: Struct = new_item.into();
+				let array: VMArray = self.pop().into();
+				if new_item.get_item_type() == StackItemType::VMStruct {
+					let s: VMStruct = new_item.into();
 					new_item = s.clone(&self.limits).try_into().unwrap();
 					// new_item = s.Clone(self.limits);
 				}
@@ -1256,17 +1251,17 @@ impl ExecutionEngine {
 			},
 			OpCode::SetItem => {
 				let mut value = self.pop();
-				if value.get_item_type() == StackItemType::Struct {
-					let s: Struct = value.into();
+				if value.get_item_type() == StackItemType::VMStruct {
+					let s: VMStruct = value.into();
 					value = s.clone(&self.limits).try_into().unwrap();
 				}
-				let key: dyn PrimitiveType = self.pop().into();
+				let key: VMPrimitive = self.pop().into();
 				let x = self.pop();
 				match x {
 					VMArray(array) => {
 						let index = key.get_integer().to_i32().unwrap();
 						if index < 0 || index >= array.Count {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The value {index} is out of range.".parse().unwrap(),
 							))
 						}
@@ -1276,18 +1271,18 @@ impl ExecutionEngine {
 					StackItem::VMBuffer(buffer) => {
 						let index = key.get_integer().to_i32().unwrap();
 						if index < 0 || index >= buffer.Size {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The value {index} is out of range.".parse().unwrap(),
 							))
 						}
 						if !StackItemType::is_primitive(value.get_item_type() as u8) {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"Value must be a primitive type in {instr.OpCode}".parse().unwrap(),
 							))
 						}
 						let b = value.get_integer().to_i64().unwrap();
 						if b < i8::min as i64 || b > i8::max as i64 {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"Overflow in {instr.OpCode}, {b} is not a byte type."
 									.parse()
 									.unwrap(),
@@ -1295,7 +1290,7 @@ impl ExecutionEngine {
 						}
 						buffer.InnerBuffer.Span[index] = b
 					},
-					_ => Err(VMException::InvalidOpcode(
+					_ => Err(VMError::InvalidOpcode(
 						"Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap(),
 					)),
 				}
@@ -1304,21 +1299,21 @@ impl ExecutionEngine {
 			OpCode::ReverseItems => {
 				let x = self.pop();
 				match x {
-					StackItem::VMArray(array) => array.Reverse(),
+					VMStackItem::Array(array) => array.Reverse(),
 					StackItem::VMBuffer(buffer) => buffer.InnerBuffer.Span.Reverse(),
-					_ => Err(VMException::InvalidOpcode(
+					_ => Err(VMError::InvalidOpcode(
 						"Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap(),
 					)),
 				}
 			},
 			OpCode::Remove => {
-				let key: Rc<RefCell<dyn PrimitiveType>> = self.pop().into();
+				let key: Rc<RefCell<VMPrimitive>> = self.pop().into();
 				let x = self.pop();
 				match x {
-					StackItem::VMArray(mut array) => {
+					VMStackItem::Array(mut array) => {
 						let index = key.get_integer().to_i32().unwrap();
 						if index < 0 || index >= array.Count {
-							return Err(VMException::InvalidOpcode(
+							return Err(VMError::InvalidOpcode(
 								"The value {index} is out of range.".parse().unwrap(),
 							))
 						}
@@ -1326,17 +1321,17 @@ impl ExecutionEngine {
 					},
 					StackItem::VMMap(mut map) => map.remove(key),
 					_ =>
-						return Err(VMException::InvalidOpcode(
+						return Err(VMError::InvalidOpcode(
 							"Invalid type for {instr.OpCode}: {x.Type}".parse().unwrap(),
 						)),
 				}
 			},
 			OpCode::ClearItems => {
-				let x: dyn CompoundType = self.pop().into();
+				let x: VMCompound = self.pop().into();
 				x.Clear()
 			},
 			OpCode::PopItem => {
-				let mut x: Rc<RefCell<dyn CompoundType>> = self.pop();
+				let mut x: Rc<RefCell<VMCompound>> = self.pop();
 				let index = x.count() - 1;
 				self.push(x[index].clone());
 				x.remove_at(index)
@@ -1351,7 +1346,7 @@ impl ExecutionEngine {
 				let x = self.pop();
 				let _type: StackItemType = instr.token_u8() as StackItemType;
 				if _type == StackItemType::Any || !StackItemType::is_valid(instr.token_u8()) {
-					return Err(VMException::InvalidOpcode("Invalid type: {type}".parse().unwrap()))
+					return Err(VMError::InvalidOpcode("Invalid type: {type}".parse().unwrap()))
 				}
 				self.push(StackItem::from(x.get_item_type() == _type).into())
 			},
@@ -1361,7 +1356,7 @@ impl ExecutionEngine {
 			},
 			OpCode::AbortMsg => {
 				let msg = self.pop().GetString();
-				Err(VMException::InvalidOpcode(
+				Err(VMError::InvalidOpcode(
 					"{OpCode::ABORTMSG} is executed. Reason: {msg}".parse().unwrap(),
 				))
 			},
@@ -1369,7 +1364,7 @@ impl ExecutionEngine {
 				let msg = self.pop().GetString();
 				let x = self.pop().get_bool();
 				if !x {
-					return Err(VMException::InvalidOpcode(
+					return Err(VMError::InvalidOpcode(
 						"{OpCode::ASSERTMSG} is executed with false result. Reason: {msg}"
 							.parse()
 							.unwrap(),
@@ -1405,7 +1400,7 @@ impl ExecutionEngine {
 
 	fn handle_error(&mut self, err: Error) {
 		self.state = VMState::Fault;
-		self.uncaught_exception = Some(StackItem::from(Null::default()).into());
+		self.uncaught_exception = Some(StackItem::from(VMNull::default()).into());
 	}
 
 	fn load_context(&mut self, context: &Rc<RefCell<ExecutionContext>>) {
@@ -1547,7 +1542,7 @@ impl ExecutionEngine {
 		self.is_jumping = true;
 	}
 
-	fn execute_throw(&mut self, exception: Rc<RefCell<dyn StackItem>>) {
+	fn execute_throw(&mut self, exception: Rc<RefCell<VMStackItem>>) {
 		self.uncaught_exception = Some(exception);
 		self.handle_exception();
 	}

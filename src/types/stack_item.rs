@@ -1,6 +1,3 @@
-use crate::{
-	stack_item_type::StackItemType,
-};
 use std::{
 	cell::RefCell,
 	fmt::{Debug},
@@ -11,34 +8,55 @@ use std::{
 use std::any::Any;
 use std::collections::HashMap;
 use num_bigint::BigInt;
-use serde::{Deserialize, Serialize};
-use crate::execution_engine_limits::ExecutionEngineLimits;
-use crate::interop_interface::InteropInterface;
-use crate::null::Null;
+use crate::{vm::execution_engine_limits::ExecutionEngineLimits, vm_error::VMError};
+use crate::types::vm_interop_interface::VMInteropInterface;
+use crate::types::stack_item_type::StackItemType;
+use crate::types::vm_null::VMNull;
+use crate::types::vm_stack_item::VMStackItem;
 
-pub trait StackItem: Clone + Hash + Eq+PartialEq+Serialize+Deserialize {
-	const TRUE: Self;
-	const FALSE: Self;
-	const NULL: Self;
+use super::compound_types::vm_compound::VMCompound;
 
-	fn dfn(&self) -> isize;
+pub trait StackItem  : Any {
 
-	fn set_dfn(&mut self, dfn: isize);
+	fn dfn(&self) -> isize{
+		todo!()
+	}
 
-	fn low_link(&self) -> usize;
-	fn set_low_link(&mut self, link: usize);
+	fn set_dfn(&mut self, dfn: isize){
+		todo!()
+	}
 
-	fn on_stack(&self) -> bool;
-	fn set_on_stack(&mut self, on_stack: bool);
+	fn low_link(&self) -> usize{
+		todo!()
+	}
+	fn set_low_link(&mut self, link: usize){
+		todo!()
+	}
 
-	fn set_object_references(&mut self, refs: Self::ObjectReferences);
-	fn object_references(&self) -> &Self::ObjectReferences;
+	fn on_stack(&self) -> bool{
+		todo!()
+	}
+	fn set_on_stack(&mut self, on_stack: bool){
+		todo!()
+	}
 
-	fn set_stack_references(&mut self, count: usize);
+	fn set_object_references(&mut self, refs: RefCell<HashMap<VMCompound, ObjectReferenceEntry>>) {
+		todo!()
+	}
 
-	fn stack_references(&self) -> usize;
+	fn object_references(&self) -> RefCell<HashMap<VMCompound, ObjectReferenceEntry>> {
+		todo!()
+	}
 
-	fn successors(&self) -> Vec<dyn StackItem> {
+	fn set_stack_references(&mut self, count: usize){
+		todo!()
+	}
+
+	fn stack_references(&self) -> usize{
+		todo!()
+	}
+
+	fn successors(&self) -> Vec<VMStackItem> {
 		self.object_references()
 			.borrow()
 			.as_ref()
@@ -55,32 +73,36 @@ pub trait StackItem: Clone + Hash + Eq+PartialEq+Serialize+Deserialize {
 	}
 
 	fn is_null(&self) -> bool {
-		false
+		match self.get_type(){
+			StackItemType::Any => true,
+			_ => false,
+		}
 	}
 
 	fn cleanup(&mut self);
 
-	fn convert_to(&self, type_: StackItemType) -> Result<Self, Err> {
+	fn convert_to(&self, type_: StackItemType) -> Result<VMStackItem, VMError> {
 		if type_ == self.get_type() {
 			Ok(self.to_owned())
 		} else if type_ == StackItemType::Boolean {
 			Ok(self.get_boolean())
 		} else {
-			Err(())
+			Err(VMError::new("Cannot convert to the given type"))
 		}
 	}
 
-	fn get_slice(&self) -> &[u8];
+	fn get_slice(&self) -> Vec<u8>;
 
 	fn get_string(&self) -> Result<String, FromUtf8Error> {
 		String::from_utf8(self.get_slice().to_vec())
 	}
 
 	fn get_hash_code(&self) -> u64 {
-		use std::hash::Hasher;
-		let mut hasher = std::collections::hash_map::DefaultHasher::new();
-		self.hash(&mut hasher);
-		hasher.finish()
+		// use std::hash::Hasher;
+		// let mut hasher = std::collections::hash_map::DefaultHasher::new();
+		// self.hash(&mut hasher);
+		// hasher.finish()
+		todo!()
 	}
 
 	fn get_type(&self) -> StackItemType;
@@ -88,19 +110,19 @@ pub trait StackItem: Clone + Hash + Eq+PartialEq+Serialize+Deserialize {
 	fn get_boolean(&self) -> bool;
 
 
-	fn deep_copy(&self, asImmutable:bool) -> Box<dyn StackItem>;
+	fn deep_copy(&self, asImmutable:bool) -> Box<VMStackItem>;
 
-	fn deep_copy_with_ref_map(&self, ref_map: &HashMap<&dyn StackItem, &dyn StackItem>, asImmutable:bool) -> Box<dyn StackItem>;
+	fn deep_copy_with_ref_map(&self, ref_map: &HashMap<&VMStackItem, &VMStackItem>, asImmutable:bool) -> Box<VMStackItem>;
 
-	fn equals(&self, other: &dyn StackItem) -> bool;
+	fn equals(&self, other: &VMStackItem) -> bool;
 
-	fn equals_with_limits(&self, other: &dyn StackItem, limits: &ExecutionEngineLimits) -> bool;
+	fn equals_with_limits(&self, other: &VMStackItem, limits: &ExecutionEngineLimits) -> bool;
 
-	fn from_interface(value: Some(dyn Any)) -> Box<dyn StackItem>{
+	fn from_interface(value: Option<Box<dyn Any>>) -> Box<VMStackItem>{
 
 		match value {
-			Some(value)=>InteropInterface::new(value),
-			None => Null::new(),
+			Some(value)=>VMInteropInterface::new(value),	
+			None => VMNull::new(),
 		}
 	}
 	fn get_integer(&self) -> BigInt;
@@ -112,19 +134,19 @@ pub trait StackItem: Clone + Hash + Eq+PartialEq+Serialize+Deserialize {
 
 	fn get_bytes(&self) -> &[u8];
 
-	fn to_ref(&self) -> Rc<RefCell<dyn StackItem>> {
+	fn to_ref(&self) -> Rc<RefCell<VMStackItem>> {
 		Rc::new(RefCell::new(self.clone()))
 	}
 
 }
 
 pub struct ObjectReferenceEntry {
-	pub(crate) item: Rc<RefCell<dyn StackItem>>,
+	pub(crate) item: Rc<RefCell<VMStackItem>>,
 	pub(crate) references: i32,
 }
 
 impl ObjectReferenceEntry {
-	pub fn new(item: Rc<RefCell<dyn StackItem>>) -> Self {
+	pub fn new(item: Rc<RefCell<VMStackItem>>) -> Self {
 		Self { item, references: 0 }
 	}
 }

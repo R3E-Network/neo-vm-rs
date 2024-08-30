@@ -3,13 +3,13 @@ use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Slot {
-	items: Vec<Rc<RefCell<dyn StackItem>>>,
+	items: Vec<Rc<RefCell<VMStackItem>>>,
 	reference_counter: Rc<RefCell<ReferenceCounter>>,
 }
 
 impl Slot {
 	pub fn new(
-		items: Vec<Rc<RefCell<dyn StackItem>>>,
+		items: Vec<Rc<RefCell<VMStackItem>>>,
 		reference_counter: Rc<RefCell<ReferenceCounter>>,
 	) -> Self {
 		let mut slot = Self { items, reference_counter };
@@ -35,11 +35,11 @@ impl Slot {
 		Self { items: Vec::with_capacity(capacity), reference_counter }
 	}
 
-	pub fn get(&self, index: usize) -> Rc<RefCell<dyn StackItem>> {
+	pub fn get(&self, index: usize) -> Rc<RefCell<VMStackItem>> {
 		self.items[index].clone()
 	}
 
-	pub fn set(&mut self, index: usize, value: Rc<RefCell<dyn StackItem>>) {
+	pub fn set(&mut self, index: usize, value: Rc<RefCell<VMStackItem>>) {
 		let old_value = std::mem::replace(&mut self.items[index], value);
 		self.reference_counter.remove_stack_reference(&old_value);
 		self.reference_counter.add_stack_reference(&value, 1);
@@ -57,7 +57,7 @@ impl Slot {
 }
 
 impl IntoIterator for Slot {
-	type Item = Rc<RefCell<dyn StackItem>>;
+	type Item = Rc<RefCell<VMStackItem>>;
 	type IntoIter = std::vec::IntoIter<Self::Item>;
 
 	fn into_iter(self) -> Self::IntoIter {
