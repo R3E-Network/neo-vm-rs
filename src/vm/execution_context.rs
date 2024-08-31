@@ -1,160 +1,163 @@
-use crate::{
+use std::{borrow::Borrow, cell::RefCell, collections::HashMap, rc::Rc};
+
+use crate::exception_handling_context::ExceptionHandlingContext;
+
+use super::{
 	evaluation_stack::EvaluationStack,
-	exception::exception_handling_context::ExceptionHandlingContext,
+	instruction::Instruction,
+	reference_counter::ReferenceCounter,
+	script::{Script, ScriptError},
+	slot::Slot,
 };
-use std::{
-	any::{Any, TypeId},
-	cell::{Ref, RefCell},
-	collections::HashMap,
-	rc::Rc,
-};
-use crate::instruction::Instruction;
-use crate::slot::Slot;
-use crate::vm::reference_counter::ReferenceCounter;
-use crate::vm::script::Script;
+
+pub struct SharedStates {
+	pub script: Rc<RefCell<Script>>,
+	pub evaluation_stack: Rc<RefCell<EvaluationStack>>,
+	pub static_fields: Option<Rc<RefCell<Slot>>>,
+	pub states: HashMap<String, Box<dyn std::any::Any>>,
+}
 
 pub struct ExecutionContext {
 	pub shared_states: Rc<RefCell<SharedStates>>,
-	pub instruction_pointer: usize,
-
-	/// The number of return values when this context returns.
 	pub rv_count: i32,
-
-	/// The local variables of this context.
-	pub local_variables: Option<Slot>,
-
-	/// The arguments passed to this context.
-	pub arguments: Option<Slot>,
-
-	/// The try stack to handle exceptions.
+	pub instruction_pointer: usize,
+	pub local_variables: Option<Rc<RefCell<Slot>>>,
+	pub arguments: Option<Rc<RefCell<Slot>>>,
 	pub try_stack: Option<Vec<ExceptionHandlingContext>>,
 }
 
-pub struct SharedStates {
-	pub(crate) script: Script,
-	pub(crate) evaluation_stack: Rc<RefCell<EvaluationStack>>,
-	pub(crate) static_fields: Option<Slot>,
-	pub(crate) states: HashMap<TypeId, Box<dyn Any>>,
-}
-
 impl ExecutionContext {
-	pub fn new(script: Script, reference_counter: Rc<RefCell<ReferenceCounter>>) -> Self {
-		let shared_states = SharedStates {
-			script,
-			evaluation_stack: Ref::new(RefCell::new(EvaluationStack::new(reference_counter))),
+	pub fn new(
+		script: Rc<RefCell<Script>>,	
+		rv_count: i32,
+		reference_counter: Rc<RefCell<ReferenceCounter>>,
+	) -> Self {
+		let shared_states = Rc::new(RefCell::new(SharedStates {
+			script: Rc::clone(&script),
+			evaluation_stack: Rc::new(RefCell::new(EvaluationStack::new(reference_counter))),
 			static_fields: None,
 			states: HashMap::new(),
-		};
-		Self {
-			shared_states:Rc::new(RefCell::new(shared_states)),
+		}));
+
+		ExecutionContext {
+			shared_states,
+			rv_count,
 			instruction_pointer: 0,
-			rv_count: 0,
 			local_variables: None,
 			arguments: None,
 			try_stack: None,
 		}
 	}
 
-	// Other fields and methods
-
-	pub fn get_state<T: 'static>(&mut self) -> &mut T
-	where
-		T: Default + Any,
-	{
-		self.shared_states
-			.borrow()
-			.states
-			.entry(TypeId::of::<T>())
-			.or_insert_with(|| Box::new(Default::default()))
-			.downcast_mut::<T>()
-			.unwrap()
+	pub fn rv_count(&self) -> i32 {
+		self.rv_count
 	}
 
-	// pub fn peek(&self, index: usize) -> Rc<RefCell<VMStackItem>> {
-	// 	let idx = self.items.len() - index - 1;
-	// 	&self.items[idx]
-	// }
-
-	// pub fn push(&mut self, item:Rc<RefCell<VMStackItem>>) {
-	// 	self.items.push(item);
-	// 	self.reference_counter.add_stack_reference(&item);
-	// }
-	//
-	// pub fn pop(&mut self) -> Rc<RefCell<VMStackItem>> {
-	// 	let item = self.items.pop().expect("stack empty");
-	// 	self.reference_counter.remove_stack_reference(&item);
-	// 	item
-	// }
-	//
-	// pub fn remove(&mut self, index: usize) -> Rc<RefCell<VMStackItem>> {
-	// 	let idx = self.items.len() - index - 1;
-	// 	let item = self.items.remove(idx).expect("index out of bounds");
-	// 	self.reference_counter.remove_stack_reference(&item);
-	// 	item.try_into().unwrap()
-	// }
-
+	pub fn script(&self) -> Rc<RefCell<Script>> {
+		Rc::clone(&self.shared_states.borrow_mut().script)
+	}
 	pub fn evaluation_stack(&self) -> Rc<RefCell<EvaluationStack>> {
-		self.shared_states.borrow().evaluation_stack.clone()
-	}
-	pub fn evaluation_stack_mut(&mut self) -> Rc<RefCell<EvaluationStack>> {
-		self.shared_states.borrow().evaluation_stack.clone()
+		Rc::clone(&self.shared_states.borrow_mut().evaluation_stack)
 	}
 
-	pub fn script(&self) -> &Script {
-		&self.shared_states.borrow().script
-	}
-	pub fn script_mut(&mut self) -> &mut Script {
-		&mut self.shared_states.borrow().script
+	pub fn static_fields(&self) -> Option<Rc<RefCell<Slot>>> {
+		self.shared_states.borrow_mut().static_fields.clone()
 	}
 
-	pub fn fields(&self) -> Option<&Slot> {
-		self.shared_states.borrow().static_fields.as_ref()
+	pub fn set_static_fields(&mut self, value: Option<Rc<RefCell<Slot>>>) {
+		self.shared_states.borrow_mut().static_fields = value;
 	}
 
-	pub fn fields_mut(&mut self) -> Option<&mut Slot> {
-		self.shared_states.borrow().static_fields.as_mut()
-	}
-	pub fn states(&self) -> &HashMap<TypeId, Box<dyn Any>> {
-		&self.shared_states.borrow().states
-	}
-	pub fn states_mut(&mut self) -> &mut HashMap<TypeId, Box<dyn Any>> {
-		&mut self.shared_states.borrow().states
+	pub fn local_variables(&self) -> Option<Rc<RefCell<Slot>>> {
+		self.local_variables.clone()
 	}
 
-	pub fn move_next(&mut self) {
-		self.instruction_pointer += 1;
+	pub fn set_local_variables(&mut self, value: Option<Rc<RefCell<Slot>>>) {
+		self.local_variables = value;
+	}
 
-		if self.instruction_pointer >= self.script().len() {
-			self.instruction_pointer = 0;
+	pub fn arguments(&self) -> Option<Rc<RefCell<Slot>>> {
+		self.arguments.clone()
+	}
+
+	pub fn set_arguments(&mut self, value: Option<Rc<RefCell<Slot>>>) {
+		self.arguments = value;
+	}
+
+	pub fn try_stack(&self) -> Option<&Vec<ExceptionHandlingContext>> {
+		self.try_stack.as_ref()
+	}
+
+	pub fn try_stack_mut(&mut self) -> Option<&mut Vec<ExceptionHandlingContext>> {
+		self.try_stack.as_mut()
+	}
+
+	pub fn instruction_pointer(&self) -> usize {
+		self.instruction_pointer
+	}
+
+	pub fn set_instruction_pointer(&mut self, value: usize) -> Result<(), &'static str> {
+		if value > self.script().borrow_mut().len() {
+			return Err("Instruction pointer out of range");
 		}
+		self.instruction_pointer = value;
+		Ok(())
+	}
+
+	pub fn current_instruction(&self) -> Option<Instruction> {
+		self.get_instruction(self.instruction_pointer)
+	}
+
+	pub fn next_instruction(&self) -> Option<Instruction> {
+		self.current_instruction()
+			.and_then(|current| self.get_instruction(self.instruction_pointer + current.size()))
 	}
 
 	pub fn clone(&self) -> Self {
-		Self::clone_with_ip(self, self.instruction_pointer)
+		self.clone_with_ip(self.instruction_pointer)
 	}
 
-	pub fn clone_with_ip(&self, ip: usize) -> Self {
-		let shared_states = Rc::clone(&self.shared_states);
-
-		Self {
-			shared_states,
-			instruction_pointer: ip,
+	pub fn clone_with_ip(&self, initial_position: usize) -> Self {
+		ExecutionContext {
+			shared_states: Rc::clone(&self.shared_states),
 			rv_count: 0,
-
-			local_variables: self.local_variables.clone(),
-			arguments: self.arguments.clone(),
-			try_stack: self.try_stack.clone(),
+			instruction_pointer: initial_position,
+			local_variables: None,
+			arguments: None,
+			try_stack: None,
 		}
 	}
 
-	// Get the current instruction
-	pub fn current_instruction(&self) -> &Instruction {
-		self.script().get_instruction(self.instruction_pointer)?
+	fn get_instruction(&self, ip: usize) -> Result<Rc<Instruction>, ScriptError> {
+		if ip >= self.script().borrow_mut().len() {
+			Err(ScriptError::InvalidInstructionPointer(ip))
+		} else {
+			self.script().borrow_mut().get_instruction(ip)
+		}
 	}
 
-	pub fn next_instruction(&self) -> &Instruction {
-		let next_ip = self.instruction_pointer + self.current_instruction().size();
-		self.script().get_instruction(next_ip)?
+	pub fn get_state<T: 'static>(&mut self, factory: Option<Box<dyn Fn() -> T>>) -> Rc<RefCell<T>> {
+		let type_name = std::any::type_name::<T>();
+		let states = &mut self.shared_states.borrow_mut().states;
+
+		if !states.contains_key(type_name) {
+			let value: T = match factory {
+				Some(f) => f(),
+				None => T::default(),
+			};
+			states.insert(type_name.to_string(), Box::new(RefCell::new(value)));
+		}
+
+		let state = states.get(type_name).unwrap();
+		Rc::new(RefCell::new(state.downcast_ref::<T>().unwrap().clone()))
 	}
-	
+
+	pub fn move_next(&mut self) -> bool {
+		if let Some(current) = self.current_instruction() {
+			self.instruction_pointer += current.size();
+			self.instruction_pointer < self.script().borrow_mut().len()
+		} else {
+			false
+		}
+	}
 }

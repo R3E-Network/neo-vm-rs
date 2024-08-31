@@ -1,7 +1,5 @@
-use std::num::NonZeroU32;
-
 /// Represents the restrictions on the vm.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ExecutionEngineLimits {
 	/// The maximum number of bits that `OpCode::SHL` and `OpCode::SHR` can shift.
 	pub max_shift: usize,

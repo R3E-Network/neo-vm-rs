@@ -1,124 +1,111 @@
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::rc::Rc;
-use crate::types::vm_stack_item::VMStackItem;
-use crate::vm::reference_counter::ReferenceCounter;
+use std::{cell::RefCell, rc::Rc};
+use std::cell::Ref;
+use super::{reference_counter::ReferenceCounter, vm_error::VMError};
 use crate::types::stack_item::StackItem;
 
 pub struct EvaluationStack {
-	inner_list: VecDeque<Rc<RefCell<dyn StackItem>>>,
+	inner_list: Vec<Rc<RefCell<StackItem>>>,
 	reference_counter: Rc<RefCell<ReferenceCounter>>,
 }
 
 impl EvaluationStack {
-
 	pub fn new(reference_counter: Rc<RefCell<ReferenceCounter>>) -> Self {
-		Self {
-			inner_list: VecDeque::new(),
-			reference_counter,
+		EvaluationStack { inner_list: Vec::new(), reference_counter }
+	}
+
+	pub fn count(&self) -> usize {
+		self.inner_list.len()
+	}
+
+	pub fn clear(&mut self) {
+		for item in self.inner_list.drain(..) {
+			self.reference_counter.borrow_mut().remove_stack_reference(item);
 		}
 	}
 
-    pub fn clear(&mut self) {
-        for item in self.inner_list.iter() {
-            self.reference_counter.borrow_mut().remove_stack_reference(item);
-        }
-        self.inner_list.clear();
-    }
-
-    pub fn copy_to(&self, stack: &mut EvaluationStack, count: Option<usize>) {
-        let count = count.unwrap_or(self.inner_list.len());
-        if count == 0 {
-            return;
-        }
-        let start = self.inner_list.len().saturating_sub(count);
-        stack.inner_list.extend_from_slice(&self.inner_list[start..]);
-        for item in &self.inner_list[start..] {
-            stack.reference_counter.borrow_mut().add_stack_reference(item);
-        }
-    }
-
-	pub fn insert(&mut self, index: usize, item: Rc<RefCell<VMStackItem>>) {
-		if index > self.inner_list.len() {
-			panic!("Insert out of bounds");
-		}
-		self.inner_list.insert(self.inner_list.len() - index, item);
-		self.reference_counter.add_stack_reference(&item);
-	}
-
-	pub fn move_to(&mut self, stack: &mut EvaluationStack, count: i32) {
+	pub fn copy_to(&self, stack: &mut EvaluationStack, count: Option<usize>) {
+		let count = count.unwrap_or(self.count());
 		if count == 0 {
 			return;
 		}
-		self.copy_to(stack, count);
-		if count == -1 || count as usize == self.inner_list.len() {
-			self.inner_list.clear();
-		} else {
-			let end = self.inner_list.len() - count as usize;
-			self.inner_list.drain(end..);
+		let start = self.count().saturating_sub(count);
+		for item in &self.inner_list[start..] {
+			let cloned_item = item.clone();
+			stack.inner_list.push(cloned_item.clone());
+			stack.reference_counter.borrow_mut().add_stack_reference(item.clone(), 1);
 		}
 	}
 
-	pub fn peek(&self, index: i32) -> Rc<RefCell<VMStackItem>> {
-		let index = index as isize;
-		if index >= self.inner_list.len() as isize {
-			panic!("Peek out of bounds");
+	pub fn insert(&mut self, index: usize, item: Rc<RefCell<StackItem>>) -> Result<(), VMError> {
+		if index > self.count() {
+			return Err(VMError::InvalidParameter("Insert out of bounds".to_string()));
 		}
-		if index < 0 {
-			let index = self.inner_list.len() as isize + index;
-			if index < 0 {
-				panic!("Peek out of bounds");
-			}
-		}
-		self.inner_list.get((self.inner_list.len() as isize - index - 1) as usize).unwrap().clone()
+		self.inner_list.insert(self.count() - index, item.clone());
+		self.reference_counter.borrow_mut().add_stack_reference(item, 1);
+		Ok(())
 	}
 
-	pub fn push(&mut self, item: Rc<RefCell<VMStackItem>>) {
-		self.inner_list.push_back(item);
-		self.reference_counter.add_stack_reference(&item);
-	}
-
-	pub fn reverse(&mut self, n: i32) {
-		let n = n as usize;
-		if n < 0 || n > self.inner_list.len() {
-			panic!("Argument out of range");
-		}
-		if n <= 1 {
+	pub fn move_to(&mut self, stack: &mut EvaluationStack, count: Option<usize>) {
+		let count = count.unwrap_or(self.count());
+		if count == 0 {
 			return;
 		}
-		let end = self.inner_list.len() - n;
-		self.inner_list.make_contiguous().reverse();
+		let start = self.count().saturating_sub(count);
+		for item in self.inner_list.drain(start..) {
+			stack.inner_list.push(item.clone());
+			stack.reference_counter.borrow_mut().add_stack_reference(item.clone(), 1);
+			self.reference_counter.borrow_mut().remove_stack_reference(item);
+		}
 	}
 
-	pub fn pop(&mut self) -> Rc<RefCell<VMStackItem>> {
+	pub fn peek(&self, index: usize) -> Result<Rc<RefCell<StackItem>>, VMError> {
+		if index >= self.count() {
+			return Err(VMError::InvalidParameter("Peek out of bounds".to_string()));
+		}
+		Ok(Rc::clone(&self.inner_list[self.count() - index - 1]))
+	}
+
+	pub fn push(&mut self, item: Rc<RefCell<StackItem>>) {
+		self.inner_list.push(Rc::clone(&item));
+		self.reference_counter.borrow_mut().add_stack_reference(item, 1);
+	}
+
+	pub fn reverse(&mut self, n: usize) -> Result<(), VMError> {
+		if n > self.count() {
+			return Err(VMError::InvalidParameter("Reverse out of bounds".to_string()));
+		}
+		if n <= 1 {
+			return Ok(());
+		}
+		let start = self.count() - n;
+		self.inner_list[start..].reverse();
+		Ok(())
+	}
+
+	pub fn pop(&mut self) -> Result<Rc<RefCell<StackItem>>, VMError> {
 		self.remove(0)
 	}
 
-	pub fn pop_typed<T: StackItem>(&mut self) -> T {
-		self.remove::<T>(0)
-	}
-
-	pub fn remove<T: StackItem>(&mut self, index: i32) -> T {
-		let index = index as isize;
-		if index >= self.inner_list.len() as isize {
-			panic!("Argument out of range");
+	fn remove(&mut self, index: usize) -> Result<Rc<RefCell<StackItem>>, VMError> {
+		if index >= self.count() {
+			return Err(VMError::InvalidParameter("Remove out of bounds".to_string()));
 		}
-		if index < 0 {
-			let index = self.inner_list.len() as isize + index;
-			if index < 0 {
-				panic!("Argument out of range");
+		let adjusted_index = self.count() - index - 1;
+		let item = self.inner_list.remove(adjusted_index);
+		self.reference_counter.borrow_mut().remove_stack_reference(item.clone());
+		Ok(item)
+	}
+}
+
+impl std::fmt::Display for EvaluationStack {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "[")?;
+		for (i, item) in self.inner_list.iter().rev().enumerate() {
+			if i > 0 {
+				write!(f, ", ")?;
 			}
+			write!(f, "{:?}({:?})", item.borrow().get_type(), item.borrow())?;
 		}
-		let index = self.inner_list.len() as isize - index - 1;
-		let item = self.inner_list.remove(index as usize).unwrap();
-		if !item.is::<T>() {
-			panic!("Invalid cast");
-		}
-		self.reference_counter.remove_stack_reference(&item);
-		item.try_into().unwrap()
-	}
-
-	pub fn size(&self) -> usize {
-		self.inner_list.len()
+		write!(f, "]")
 	}
 }

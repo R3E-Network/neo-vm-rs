@@ -8,13 +8,13 @@ pub mod execution_context;
 
 pub mod slot;
 
-mod execution_engine;
-mod vm_exception;
-pub mod vm_state;
-pub mod instruction;
+pub mod execution_engine;
 pub mod execution_engine_limits;
+pub mod instruction;
 pub mod reference_counter;
 pub mod vm_error;
+pub mod vm_state;
+mod tarjan;
 
 pub fn add(left: usize, right: usize) -> usize {
 	left + right

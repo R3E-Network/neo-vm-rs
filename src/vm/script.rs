@@ -1,135 +1,141 @@
-use crate::{instruction::Instruction, op_code::OpCode, stack_item_type::StackItemType};
-use std::{collections::HashMap, convert::TryFrom, ops::Index};
+use std::{collections::HashMap, rc::Rc};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+use crate::types::stack_item_type::StackItemType;
+
+use super::{instruction::Instruction, op_code::OpCode};
+
+#[derive(Clone)]
 pub struct Script {
 	value: Vec<u8>,
 	strict_mode: bool,
-	instructions: HashMap<usize, Instruction>,
+	instructions: HashMap<usize, Rc<Instruction>>,
 }
 
 impl Script {
+	pub fn new(script: Vec<u8>) -> Self {
+		Self::new_with_mode(script, false)
+	}
+
+	pub fn new_with_mode(script: Vec<u8>, strict_mode: bool) -> Self {
+		let mut s = Script { value: script.into(), strict_mode, instructions: HashMap::new() };
+
+		if strict_mode {
+			s.validate_script().expect("Invalid script");
+		}
+
+		s
+	}
+
 	pub fn len(&self) -> usize {
 		self.value.len()
 	}
 
-	pub fn get(&self, index: usize) -> OpCode {
-		OpCode::try_from(self.value[index]).unwrap()
+	pub fn is_empty(&self) -> bool {
+		self.value.is_empty()
 	}
 
-	pub fn new(bytes: Vec<u8>, strict_mode: bool) -> Result<Self, ScriptError> {
-		let mut script = Self { value: bytes, strict_mode, instructions: HashMap::new() };
+	pub fn get(&self, index: usize) -> Option<OpCode> {
+		self.value.get(index).map(|&b| OpCode::from_u8(b))
+	}
 
-		if strict_mode {
-			script.validate()?;
+	pub fn get_instruction(&mut self, ip: usize) -> Result<Rc<Instruction>, ScriptError> {
+		if ip >= self.len() {
+			return Err(ScriptError::InvalidInstructionPointer(ip));
 		}
 
-		Ok(script)
+		if let Some(instruction) = self.instructions.get(&ip) {
+			return Ok(Rc::clone(instruction));
+		}
+
+		if self.strict_mode {
+			return Err(ScriptError::InstructionNotFound(ip));
+		}
+
+		let instruction = Instruction::new(self.value.clone(), ip).map_err(|e| ScriptError::InvalidInstructionPointer(ip))?;
+		self.instructions.insert(ip, Rc::new(instruction));
+		Ok(Rc::clone(&self.instructions[&ip]))
 	}
 
-	pub fn validate(&mut self) -> Result<(), ScriptError> {
+	fn validate_script(&mut self) -> Result<(), ScriptError> {
 		let mut ip = 0;
 		while ip < self.len() {
-			let instruction = self.get_instruction(ip).unwrap();
-			ip += instruction.size();
-		}
+			let instruction = self.get_instruction(ip)?;
 
-		for (ip, instruction) in &self.instructions {
 			match instruction.opcode {
-				OpCode::Jmp
-				| OpCode::JmpIf
-				| OpCode::JmpIfNot
-				| OpCode::JmpEq
-				| OpCode::JmpNe
-				| OpCode::JmpGt
-				| OpCode::JmpGe
-				| OpCode::JmpLt
-				| OpCode::JmpLe
-				| OpCode::Call
-				| OpCode::EndTry =>
-					if !self.instructions.contains_key(&(ip + instruction.token_i8())) {
-						panic!("ip: {}, opcode: {:?}", ip, instruction.opcode);
-					},
-				OpCode::PushA
-				| OpCode::JmpL
-				| OpCode::JmpIfL
-				| OpCode::JmpIfNotL
-				| OpCode::JmpEqL
-				| OpCode::JmpNeL
-				| OpCode::JmpGtL
-				| OpCode::JmpGeL
-				| OpCode::JmpLtL
-				| OpCode::JmpLeL
-				| OpCode::CallL
-				| OpCode::EndTryL =>
-					if !self.instructions.contains_key(&(ip + instruction.token_i32())) {
-						panic!("ip: {}, opcode: {:?}", ip, instruction.opcode);
-					},
-				OpCode::Try => {
-					if !self.instructions.contains_key(&(ip + instruction.token_i8())) {
-						panic!("ip: {}, opcode: {:?}", ip, instruction.opcode);
-					}
-					if !self.instructions.contains_key(&(ip + instruction.token_i8_1())) {
-						panic!("ip: {}, opcode: {:?}", ip, instruction.opcode);
-					}
+				OpCode::JMP
+				| OpCode::JMPIF
+				| OpCode::JMPIFNOT
+				| OpCode::JMPEQ
+				| OpCode::JMPNE
+				| OpCode::JMPGT
+				| OpCode::JMPGE
+				| OpCode::JMPLT
+				| OpCode::JMPLE
+				| OpCode::CALL
+				| OpCode::ENDTRY => {
+					let target = (ip as i32 + instruction.token_i8() as i32) as usize;
+					self.get_instruction(target)?;
 				},
-				OpCode::TryL => {
-					if !self.instructions.contains_key(&(ip + instruction.token_i32())) {
-						panic!("ip: {}, opcode: {:?}", ip, instruction.opcode);
-					}
-					if !self.instructions.contains_key(&(ip + instruction.token_i32_1())) {
-						panic!("ip: {}, opcode: {:?}", ip, instruction.opcode);
-					}
+				OpCode::PUSHA
+				| OpCode::JMP_L
+				| OpCode::JMPIF_L
+				| OpCode::JMPIFNOT_L
+				| OpCode::JMPEQ_L
+				| OpCode::JMPNE_L
+				| OpCode::JMPGT_L
+				| OpCode::JMPGE_L
+				| OpCode::JMPLT_L
+				| OpCode::JMPLE_L
+				| OpCode::CALL_L
+				| OpCode::ENDTRY_L => {
+					let target = (ip as i32 + instruction.token_i32()) as usize;
+					self.get_instruction(target)?;
 				},
-				OpCode::NewArrayT | OpCode::IsType | OpCode::Convert => {
+				OpCode::TRY => {
+					let catch_target = (ip as i32 + instruction.token_i8() as i32) as usize;
+					let finally_target = (ip as i32 + instruction.token_i8_1() as i32) as usize;
+					self.get_instruction(catch_target)?;
+					self.get_instruction(finally_target)?;
+				},
+				OpCode::TRY_L => {
+					let catch_target = (ip as i32 + instruction.token_i32()) as usize;
+					let finally_target = (ip as i32 + instruction.token_i32_1()) as usize;
+					self.get_instruction(catch_target)?;
+					self.get_instruction(finally_target)?;
+				},
+				OpCode::NEWARRAY_T | OpCode::ISTYPE | OpCode::CONVERT => {
 					let type_code = instruction.token_u8();
 					if !StackItemType::is_valid(type_code) {
-						panic!("Invalid type code: {}", type_code);
+						return Err(ScriptError::InvalidStackItemType(ip, type_code));
 					}
-					if instruction.opcode != OpCode::NewArrayT
-						&& type_code == StackItemType::Any as u8
+					if instruction.opcode != OpCode::NEWARRAY_T
+						&& StackItemType::from(type_code) == StackItemType::Any
 					{
-						panic!("ip: {}, opcode: {:?} with Any type", ip, instruction.opcode);
+						return Err(ScriptError::InvalidStackItemType(ip, type_code));
 					}
 				},
 				_ => {},
 			}
+
+			ip += instruction.size();
 		}
 
 		Ok(())
 	}
+}
 
-	pub fn get_instruction(&mut self, ip: usize) -> Result<&Instruction, ScriptError> {
-		if !self.instructions.contains_key(&ip) {
-			if self.strict_mode {
-				return Err(ScriptError::InvalidInstrPointer(ip))
-			}
-
-			let instr = Instruction::parse(&self.value, ip)?;
-			self.instructions.insert(ip, instr);
-		}
-
-		Ok(self.instructions.get(&ip).unwrap())
+impl AsRef<[u8]> for Script {
+	fn as_ref(&self) -> &[u8] {
+		&self.value
 	}
 }
 
-impl Index<usize> for Script {
-	type Output = OpCode;
+#[derive(Debug)]
+pub enum ScriptError {
+	InvalidInstructionPointer(usize),
+	InstructionNotFound(usize),
+	InvalidJumpTarget(usize, OpCode),
+	InvalidTryTarget(usize),
+	InvalidStackItemType(usize, u8),
 
-	fn index(&self, index: usize) -> &Self::Output {
-		&self.get(index)
-	}
-}
-
-impl TryFrom<Vec<u8>> for Script {
-	type Error = ScriptError;
-
-	fn try_from(script: Vec<u8>) -> Result<Self, Self::Error> {
-		Self::new(script, false)
-	}
-}
-
-enum ScriptError {
-	InvalidInstrPointer(usize),
-	// other errors
 }

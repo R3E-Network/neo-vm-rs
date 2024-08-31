@@ -1,215 +1,289 @@
 use lazy_static::lazy_static;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use std::{collections::HashMap, fmt::Error};
+use std::{
+	collections::HashMap,
+	fmt::{Display, Error},
+};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, FromPrimitive, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, FromPrimitive)]
+#[repr(u8)]
 pub enum OpCode {
-	PushInt8 = 0x00,
-	PushInt16 = 0x01,
-	PushInt32 = 0x02,
-	PushInt64 = 0x03,
-	PushInt128 = 0x04,
-	PushInt256 = 0x05,
-	PushTrue = 0x08,
-	PushFalse = 0x09,
-	PushA = 0x0A,
-	PushNull = 0x0B,
-	PushData1 = 0x0C,
-	PushData2 = 0x0D,
-	PushData4 = 0x0E,
-	PushM1 = 0x0F,
-	Push0 = 0x10,
-	Push1 = 0x11,
-	Push2 = 0x12,
-	Push3 = 0x13,
-	Push4 = 0x14,
-	Push5 = 0x15,
-	Push6 = 0x16,
-	Push7 = 0x17,
-	Push8 = 0x18,
-	Push9 = 0x19,
-	Push10 = 0x1A,
-	Push11 = 0x1B,
-	Push12 = 0x1C,
-	Push13 = 0x1D,
-	Push14 = 0x1E,
-	Push15 = 0x1F,
-	Push16 = 0x20,
+	// Constants
+	PUSHINT8 = 0x00,
+	PUSHINT16 = 0x01,
+	PUSHINT32 = 0x02,
+	PUSHINT64 = 0x03,
+	PUSHINT128 = 0x04,
+	PUSHINT256 = 0x05,
+	PUSHT = 0x08,
+	PUSHF = 0x09,
+	PUSHA = 0x0A,
+	PUSHNULL = 0x0B,
+	PUSHDATA1 = 0x0C,
+	PUSHDATA2 = 0x0D,
+	PUSHDATA4 = 0x0E,
+	PUSHM1 = 0x0F,
+	PUSH0 = 0x10,
+	PUSH1 = 0x11,
+	PUSH2 = 0x12,
+	PUSH3 = 0x13,
+	PUSH4 = 0x14,
+	PUSH5 = 0x15,
+	PUSH6 = 0x16,
+	PUSH7 = 0x17,
+	PUSH8 = 0x18,
+	PUSH9 = 0x19,
+	PUSH10 = 0x1A,
+	PUSH11 = 0x1B,
+	PUSH12 = 0x1C,
+	PUSH13 = 0x1D,
+	PUSH14 = 0x1E,
+	PUSH15 = 0x1F,
+	PUSH16 = 0x20,
 
-	Nop = 0x21,
-	Jmp = 0x22,
-	JmpL = 0x23,
-	JmpIf = 0x24,
-	JmpIfL = 0x25,
-	JmpIfNot = 0x26,
-	JmpIfNotL = 0x27,
-	JmpEq = 0x28,
-	JmpEqL = 0x29,
-	JmpNe = 0x2A,
-	JmpNeL = 0x2B,
-	JmpGt = 0x2C,
-	JmpGtL = 0x2D,
-	JmpGe = 0x2E,
-	JmpGeL = 0x2F,
-	JmpLt = 0x30,
-	JmpLtL = 0x31,
-	JmpLe = 0x32,
-	JmpLeL = 0x33,
-	Call = 0x34,
-	CallL = 0x35,
-	CallA = 0x36,
-	CallT = 0x37,
-	Abort = 0x38,
-	Assert = 0x39,
-	Throw = 0x3A,
-	Try = 0x3B,
-	TryL = 0x3C,
-	EndTry = 0x3D,
-	EndTryL = 0x3E,
-	EndFinally = 0x3F,
-	Ret = 0x40,
-	Syscall = 0x41,
+	// Flow control
+	NOP = 0x21,
+	JMP = 0x22,
+	JMP_L = 0x23,
+	JMPIF = 0x24,
+	JMPIF_L = 0x25,
+	JMPIFNOT = 0x26,
+	JMPIFNOT_L = 0x27,
+	JMPEQ = 0x28,
+	JMPEQ_L = 0x29,
+	JMPNE = 0x2A,
+	JMPNE_L = 0x2B,
+	JMPGT = 0x2C,
+	JMPGT_L = 0x2D,
+	JMPGE = 0x2E,
+	JMPGE_L = 0x2F,
+	JMPLT = 0x30,
+	JMPLT_L = 0x31,
+	JMPLE = 0x32,
+	JMPLE_L = 0x33,
+	CALL = 0x34,
+	CALL_L = 0x35,
+	CALLA = 0x36,
+	CALLT = 0x37,
+	ABORT = 0x38,
+	ASSERT = 0x39,
+	THROW = 0x3A,
+	TRY = 0x3B,
+	TRY_L = 0x3C,
+	ENDTRY = 0x3D,
+	ENDTRY_L = 0x3E,
+	ENDFINALLY = 0x3F,
+	RET = 0x40,
+	SYSCALL = 0x41,
 
-	Depth = 0x43,
-	Drop = 0x45,
-	Nip = 0x46,
-	Xdrop = 0x48,
-	Clear = 0x49,
-	Dup = 0x4A,
-	Over = 0x4B,
-	Pick = 0x4D,
-	Tuck = 0x4E,
-	Swap = 0x50,
-	Rot = 0x51,
-	Roll = 0x52,
-	Reverse3 = 0x53,
-	Reverse4 = 0x54,
-	ReverseN = 0x55,
+	// Stack
+	DEPTH = 0x43,
+	DROP = 0x45,
+	NIP = 0x46,
+	XDROP = 0x48,
+	CLEAR = 0x49,
+	DUP = 0x4A,
+	OVER = 0x4B,
+	PICK = 0x4D,
+	TUCK = 0x4E,
+	SWAP = 0x50,
+	ROT = 0x51,
+	ROLL = 0x52,
+	REVERSE3 = 0x53,
+	REVERSE4 = 0x54,
+	REVERSEN = 0x55,
 
-	InitSSLot = 0x56,
-	InitSlot = 0x57,
-	LdSFLd0 = 0x58,
-	LdSFLd1 = 0x59,
-	LdSFLd2 = 0x5A,
-	LdSFLd3 = 0x5B,
-	LdSFLd4 = 0x5C,
-	LdSFLd5 = 0x5D,
-	LdSFLd6 = 0x5E,
-	LdSFLd = 0x5F,
-	StSFLd0 = 0x60,
-	StSFLd1 = 0x61,
-	StSFLd2 = 0x62,
-	StSFLd3 = 0x63,
-	StSFLd4 = 0x64,
-	StSFLd5 = 0x65,
-	StSFLd6 = 0x66,
-	StSFLd = 0x67,
-	LdLoc0 = 0x68,
-	LdLoc1 = 0x69,
-	LdLoc2 = 0x6A,
-	LdLoc3 = 0x6B,
-	LdLoc4 = 0x6C,
-	LdLoc5 = 0x6D,
-	LdLoc6 = 0x6E,
-	LdLoc = 0x6F,
-	StLoc0 = 0x70,
-	StLoc1 = 0x71,
-	StLoc2 = 0x72,
-	StLoc3 = 0x73,
-	StLoc4 = 0x74,
-	StLoc5 = 0x75,
-	StLoc6 = 0x76,
-	StLoc = 0x77,
-	LdArg0 = 0x78,
-	LdArg1 = 0x79,
-	LdArg2 = 0x7A,
-	LdArg3 = 0x7B,
-	LdArg4 = 0x7C,
-	LdArg5 = 0x7D,
-	LdArg6 = 0x7E,
-	LdArg = 0x7F,
-	StArg0 = 0x80,
-	StArg1 = 0x81,
-	StArg2 = 0x82,
-	StArg3 = 0x83,
-	StArg4 = 0x84,
-	StArg5 = 0x85,
-	StArg6 = 0x86,
-	StArg = 0x87,
+	// Slots
+	INITSSLOT = 0x56,
+	INITSLOT = 0x57,
+	LDSFLD0 = 0x58,
+	LDSFLD1 = 0x59,
+	LDSFLD2 = 0x5A,
+	LDSFLD3 = 0x5B,
+	LDSFLD4 = 0x5C,
+	LDSFLD5 = 0x5D,
+	LDSFLD6 = 0x5E,
+	LDSFLD = 0x5F,
+	STSFLD0 = 0x60,
+	STSFLD1 = 0x61,
+	STSFLD2 = 0x62,
+	STSFLD3 = 0x63,
+	STSFLD4 = 0x64,
+	STSFLD5 = 0x65,
+	STSFLD6 = 0x66,
+	STSFLD = 0x67,
+	LDLOC0 = 0x68,
+	LDLOC1 = 0x69,
+	LDLOC2 = 0x6A,
+	LDLOC3 = 0x6B,
+	LDLOC4 = 0x6C,
+	LDLOC5 = 0x6D,
+	LDLOC6 = 0x6E,
+	LDLOC = 0x6F,
+	STLOC0 = 0x70,
+	STLOC1 = 0x71,
+	STLOC2 = 0x72,
+	STLOC3 = 0x73,
+	STLOC4 = 0x74,
+	STLOC5 = 0x75,
+	STLOC6 = 0x76,
+	STLOC = 0x77,
+	LDARG0 = 0x78,
+	LDARG1 = 0x79,
+	LDARG2 = 0x7A,
+	LDARG3 = 0x7B,
+	LDARG4 = 0x7C,
+	LDARG5 = 0x7D,
+	LDARG6 = 0x7E,
+	LDARG = 0x7F,
+	STARG0 = 0x80,
+	STARG1 = 0x81,
+	STARG2 = 0x82,
+	STARG3 = 0x83,
+	STARG4 = 0x84,
+	STARG5 = 0x85,
+	STARG6 = 0x86,
+	STARG = 0x87,
 
-	NewBuffer = 0x88,
-	MemCpy = 0x89,
-	Cat = 0x8B,
-	Substr = 0x8C,
-	Left = 0x8D,
-	Right = 0x8E,
+	// Arithmetic
+	NEWBUFFER = 0x88,
+	MEMCPY = 0x89,
+	CAT = 0x8B,
+	SUBSTR = 0x8C,
+	LEFT = 0x8D,
+	RIGHT = 0x8E,
+	INVERT = 0x90,
+	AND = 0x91,
+	OR = 0x92,
+	XOR = 0x93,
+	EQUAL = 0x97,
+	NOTEQUAL = 0x98,
+	SIGN = 0x99,
+	ABS = 0x9A,
+	NEGATE = 0x9B,
+	INC = 0x9C,
+	DEC = 0x9D,
+	ADD = 0x9E,
+	SUB = 0x9F,
+	MUL = 0xA0,
+	DIV = 0xA1,
+	MOD = 0xA2,
+	POW = 0xA3,
+	SQRT = 0xA4,
+	MODMUL = 0xA5,
+	MODPOW = 0xA6,
+	SHL = 0xA8,
+	SHR = 0xA9,
+	NOT = 0xAA,
+	BOOLAND = 0xAB,
+	BOOLOR = 0xAC,
+	NZ = 0xB1,
+	NUMEQUAL = 0xB3,
+	NUMNOTEQUAL = 0xB4,
+	LT = 0xB5,
+	LE = 0xB6,
+	GT = 0xB7,
+	GE = 0xB8,
+	MIN = 0xB9,
+	MAX = 0xBA,
+	WITHIN = 0xBB,
 
-	Invert = 0x90,
-	And = 0x91,
-	Or = 0x92,
-	Xor = 0x93,
-	Equal = 0x97,
-	NotEqual = 0x98,
+	// Compound-type
+	PACKMAP = 0xBE,
+	PACKSTRUCT = 0xBF,
+	PACK = 0xC0,
+	UNPACK = 0xC1,
+	NEWARRAY0 = 0xC2,
+	NEWARRAY = 0xC3,
+	NEWARRAY_T = 0xC4,
+	NEWSTRUCT0 = 0xC5,
+	NEWSTRUCT = 0xC6,
+	NEWMAP = 0xC8,
+	SIZE = 0xCA,
+	HASKEY = 0xCB,
+	KEYS = 0xCC,
+	VALUES = 0xCD,
+	PICKITEM = 0xCE,
+	APPEND = 0xCF,
+	SETITEM = 0xD0,
+	REVERSEITEMS = 0xD1,
+	REMOVE = 0xD2,
+	CLEARITEMS = 0xD3,
+	POPITEM = 0xD4,
 
-	Sign = 0x99,
-	Abs = 0x9A,
-	Negate = 0x9B,
-	Inc = 0x9C,
-	Dec = 0x9D,
-	Add = 0x9E,
-	Sub = 0x9F,
-	Mul = 0xA0,
-	Div = 0xA1,
-	Mod = 0xA2,
-	Pow = 0xA3,
-	Sqrt = 0xA4,
-	ModMul = 0xA5,
-	ModPow = 0xA6,
-	Shl = 0xA8,
-	Shr = 0xA9,
-	Not = 0xAA,
-	BoolAnd = 0xAB,
-	BoolOr = 0xAC,
-	Nz = 0xB1,
-	NumEqual = 0xB3,
-	NumNotEqual = 0xB4,
-	Lt = 0xB5,
-	Le = 0xB6,
-	Gt = 0xB7,
-	Ge = 0xB8,
-	Min = 0xB9,
-	Max = 0xBA,
-	Within = 0xBB,
+	// Types
+	ISNULL = 0xD8,
+	ISTYPE = 0xD9,
+	CONVERT = 0xDB,
 
-	PackMap = 0xBE,
-	PackStruct = 0xBF,
-	Pack = 0xC0,
-	Unpack = 0xC1,
-	NewArray0 = 0xC2,
-	NewArray = 0xC3,
-	NewArrayT = 0xC4,
-	NewStruct0 = 0xC5,
-	NewStruct = 0xC6,
-	NewMap = 0xC8,
-	Size = 0xCA,
-	HasKey = 0xCB,
-	Keys = 0xCC,
-	Values = 0xCD,
-	PickItem = 0xCE,
-	Append = 0xCF,
-	SetItem = 0xD0,
-	ReverseItems = 0xD1,
-	Remove = 0xD2,
-	ClearItems = 0xD3,
-	PopItem = 0xD4,
+	// Exceptions
+	ABORTMSG = 0xE0,
+	ASSERTMSG = 0xE1,
+}
 
-	IsNull = 0xD8,
-	IsType = 0xD9,
-	Convert = 0xDB,
+impl OpCode {
+	pub fn from_u8(value: u8) -> Option<Self> {
+		FromPrimitive::from_u8(value)
+	}
 
-	AbortMsg = 0xE0,
-	AssertMsg = 0xE1,
+	pub fn operand_prefix(&self) -> u8 {
+		match self {
+			OpCode::PUSHDATA1 => 1,
+			OpCode::PUSHDATA2 => 2,
+			OpCode::PUSHDATA4 => 4,
+			_ => 0,
+		}
+	}
+
+	pub fn operand_size(&self) -> u8 {
+		match self {
+			OpCode::PUSHINT8 => 1,
+			OpCode::PUSHINT16 => 2,
+			OpCode::PUSHINT32 => 4,
+			OpCode::PUSHINT64 => 8,
+			OpCode::PUSHINT128 => 16,
+			OpCode::PUSHINT256 => 32,
+			OpCode::PUSHA => 4,
+			OpCode::JMP
+			| OpCode::JMPIF
+			| OpCode::JMPIFNOT
+			| OpCode::JMPEQ
+			| OpCode::JMPNE
+			| OpCode::JMPGT
+			| OpCode::JMPGE
+			| OpCode::JMPLT
+			| OpCode::JMPLE
+			| OpCode::CALL => 1,
+			OpCode::JMP_L
+			| OpCode::JMPIF_L
+			| OpCode::JMPIFNOT_L
+			| OpCode::JMPEQ_L
+			| OpCode::JMPNE_L
+			| OpCode::JMPGT_L
+			| OpCode::JMPGE_L
+			| OpCode::JMPLT_L
+			| OpCode::JMPLE_L
+			| OpCode::CALL_L => 4,
+			OpCode::CALLT => 2,
+			OpCode::TRY => 2,
+			OpCode::TRY_L => 8,
+			OpCode::ENDTRY => 1,
+			OpCode::ENDTRY_L => 4,
+			OpCode::SYSCALL => 4,
+			OpCode::INITSLOT => 2,
+			OpCode::LDSFLD
+			| OpCode::STSFLD
+			| OpCode::LDLOC
+			| OpCode::STLOC
+			| OpCode::LDARG
+			| OpCode::STARG
+			| OpCode::NEWARRAY_T
+			| OpCode::ISTYPE
+			| OpCode::CONVERT => 1,
+			_ => 0,
+		}
+	}
 }
 
 struct OperandSize {
@@ -218,74 +292,63 @@ struct OperandSize {
 }
 
 lazy_static! {
-	static ref OPERAND_SIZES: HashMap<OpCode, OperandSize> = {
-		let mut m = HashMap::<OpCode, OperandSize>::new();
-		m.insert(OpCode::PushInt8, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::PushInt16, OperandSize { prefix: 0, size: 2 });
-		m.insert(OpCode::PushInt32, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::PushInt64, OperandSize { prefix: 0, size: 8 });
-		m.insert(OpCode::PushInt128, OperandSize { prefix: 0, size: 16 });
-		m.insert(OpCode::PushInt256, OperandSize { prefix: 0, size: 32 });
-		m.insert(OpCode::PushA, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::PushData1, OperandSize { prefix: 1, size: 0 });
-		m.insert(OpCode::PushData2, OperandSize { prefix: 2, size: 0 });
-		m.insert(OpCode::PushData4, OperandSize { prefix: 4, size: 0 });
-		m.insert(OpCode::Jmp, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpIf, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpIfL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpIfNot, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpIfNotL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpEq, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpEqL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpNe, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpNeL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpGt, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpGtL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpGe, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpGeL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpLt, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpLtL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::JmpLe, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::JmpLeL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::Call, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::CallL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::CallT, OperandSize { prefix: 0, size: 2 });
-		m.insert(OpCode::Try, OperandSize { prefix: 0, size: 2 });
-		m.insert(OpCode::TryL, OperandSize { prefix: 0, size: 8 });
-		m.insert(OpCode::EndTry, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::EndTryL, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::Syscall, OperandSize { prefix: 0, size: 4 });
-		m.insert(OpCode::InitSSLot, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::InitSlot, OperandSize { prefix: 0, size: 2 });
-		m.insert(OpCode::LdSFLd, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::StSFLd, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::LdLoc, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::StLoc, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::LdArg, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::StArg, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::NewArrayT, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::IsType, OperandSize { prefix: 0, size: 1 });
-		m.insert(OpCode::Convert, OperandSize { prefix: 0, size: 1 });
-
-		m
+	static ref OPERAND_SIZE_PREFIX_TABLE: [usize; 256] = {
+		let mut table = [0; 256];
+		table[OpCode::PUSHDATA1 as usize] = 1;
+		table[OpCode::PUSHDATA2 as usize] = 2;
+		table[OpCode::PUSHDATA4 as usize] = 4;
+		table
 	};
-}
+	static ref OPERAND_SIZE_TABLE: [usize; 256] = {
+		let mut table = [0; 256];
 
-impl OpCode {
-	pub fn operand_size(&self) -> Result<u8, &OpCode> {
-		match OPERAND_SIZES.get(self) {
-			Some(size) => Ok(size.size),
-			None => Err(self),
-		}
-	}
+		table[OpCode::PUSHINT8 as usize] = 1;
+		table[OpCode::PUSHINT16 as usize] = 2;
+		table[OpCode::PUSHINT32 as usize] = 4;
+		table[OpCode::PUSHINT64 as usize] = 8;
+		table[OpCode::PUSHINT128 as usize] = 16;
+		table[OpCode::PUSHINT256 as usize] = 32;
+		table[OpCode::PUSHA as usize] = 4;
+		table[OpCode::JMP as usize] = 1;
+		table[OpCode::JMP_L as usize] = 4;
+		table[OpCode::JMPIF as usize] = 1;
+		table[OpCode::JMPIF_L as usize] = 4;
+		table[OpCode::JMPIFNOT as usize] = 1;
+		table[OpCode::JMPIFNOT_L as usize] = 4;
+		table[OpCode::JMPEQ as usize] = 1;
+		table[OpCode::JMPEQ_L as usize] = 4;
+		table[OpCode::JMPNE as usize] = 1;
+		table[OpCode::JMPNE_L as usize] = 4;
+		table[OpCode::JMPGT as usize] = 1;
+		table[OpCode::JMPGT_L as usize] = 4;
+		table[OpCode::JMPGE as usize] = 1;
+		table[OpCode::JMPGE_L as usize] = 4;
+		table[OpCode::JMPLT as usize] = 1;
+		table[OpCode::JMPLT_L as usize] = 4;
+		table[OpCode::JMPLE as usize] = 1;
+		table[OpCode::JMPLE_L as usize] = 4;
+		table[OpCode::CALL as usize] = 1;
+		table[OpCode::CALL_L as usize] = 4;
+		table[OpCode::CALLT as usize] = 2;
+		table[OpCode::TRY as usize] = 2;
+		table[OpCode::TRY_L as usize] = 8;
+		table[OpCode::ENDTRY as usize] = 1;
+		table[OpCode::ENDTRY_L as usize] = 4;
+		table[OpCode::SYSCALL as usize] = 4;
+		table[OpCode::INITSLOT as usize] = 1;
+		table[OpCode::INITSLOT as usize] = 2;
+		table[OpCode::LDSFLD as usize] = 1;
+		table[OpCode::STSFLD as usize] = 1;
+		table[OpCode::LDLOC as usize] = 1;
+		table[OpCode::STLOC as usize] = 1;
+		table[OpCode::LDARG as usize] = 1;
+		table[OpCode::STARG as usize] = 1;
+		table[OpCode::NEWARRAY_T as usize] = 1;
+		table[OpCode::ISTYPE as usize] = 1;
+		table[OpCode::CONVERT as usize] = 1;
 
-	pub fn operand_prefix(&self) -> Result<u8, &OpCode> {
-		match OPERAND_SIZES.get(self) {
-			Some(size) => Ok(size.prefix),
-			None => Err(self),
-		}
-	}
+		table
+	};
 }
 
 // let opcode_sizes = {
